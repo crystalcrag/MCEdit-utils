@@ -23,6 +23,8 @@ static STRPTR rot90Names[] = {
 
 static int factors[] = {100, 200, 300, 400, 800, 1100, 1600, 2300, 3200};
 
+extern STRPTR detailTexNames[];
+
 /*
  * view image callbacks
  */
@@ -440,7 +442,7 @@ static void boxAddOrUpdateList(Block box, Bool insert)
 		SIT_ListInsertItem(finder.list, -1, box, box->name, boxSize, boxPos);
 		box->name[len] = 0;
 	}
-	animSynBox(box, True);
+	animSyncBox(box, True);
 }
 
 /* SITE_OnActivate on addbox */
@@ -660,6 +662,19 @@ static int uiToggleDetail(SIT_Widget w, APTR cd, APTR ud)
 
 	SIT_SetValues(finder.subdet, SIT_Enabled, prefs.detail == 0, NULL);
 
+	Block b;
+	if (prefs.detail)
+	{
+		for (b = blockGetNth(0); b; NEXT(b))
+			b->detailTex = TEX_DETAIL, blockCubeMapToDetail(b);
+	}
+	else
+	{
+		b = blockGetNth(0);
+		b->detailTex = TEX_CUBEMAP;
+		for (NEXT(b); b; b->detailTex = TEX_CUBEMAP_INHERIT, NEXT(b));
+	}
+
 	return 1;
 }
 
@@ -777,6 +792,12 @@ void uiSelectFace(int faceId)
 		/* face of primitive */
 		finder.faceEdit = finder.lastFaceSet = (faceId & 7) - 1;
 		SIT_SetValues(finder.radio[finder.faceEdit], SIT_CheckState, True, NULL);
+		Block b = boxGetCurrent();
+		TEXT tileCoord[16];
+		int XYWH[4];
+		blockGetTexRect(b, finder.faceEdit, XYWH);
+		sprintf(tileCoord, "%d, %d\n", XYWH[2], XYWH[3]);
+		SIT_SetValues(finder.coords, SIT_Title, tileCoord, NULL);
 		viewShowTexCoord(boxGetCurrent(), finder.faceEdit);
 	}
 }
@@ -864,9 +885,9 @@ static int uiSaveChanges(SIT_Widget w, APTR cd, APTR ud)
 	fprintf(out, "WndHeight=%d\n", prefs.height);
 	fprintf(out, "DetailMode=%d\n", prefs.detail);
 	fprintf(out, "ShowBBox=%d\n", prefs.bbox);
+	fprintf(out, "LastTex=%s\n", prefs.lastTex);
 	for (i = 0; i < prefs.nbBlocks; NEXT(b))
 	{
-		static STRPTR detailTexNames[] = {"TEX_CUBEMAP", "TEX_INHERIT", "TEX_DETAIL"};
 		DATA16 tex;
 		int    faces;
 		i ++;
@@ -875,7 +896,7 @@ static int uiSaveChanges(SIT_Widget w, APTR cd, APTR ud)
 		if (b->faces & BHDR_INVERTNORM) fprintf(out, ",INVERT");
 		if (b->node.ln_Prev == NULL && prefs.rot90 > 0) fprintf(out, ",ROT90,%d", prefs.rot90 * 90);
 		fprintf(out, ",SIZE,%g,%g,%g", b->size[0], b->size[1], b->size[2]);
-		if (b->trans[0] != 0 || b->trans[0] != 0 || b->trans[2] != 0)
+		if (b->trans[0] != 0 || b->trans[1] != 0 || b->trans[2] != 0)
 			fprintf(out, ",TR,%g,%g,%g", b->trans[0], b->trans[1], b->trans[2]);
 		if (b->rotate[0] != 0 || b->rotate[1] != 0 || b->rotate[2] != 0)
 			fprintf(out, ",ROT,%g,%g,%g", b->rotate[0], b->rotate[1], b->rotate[2]);
@@ -883,6 +904,8 @@ static int uiSaveChanges(SIT_Widget w, APTR cd, APTR ud)
 			fprintf(out, ",ROTCAS,%g,%g,%g", b->cascade[0], b->cascade[1], b->cascade[2]);
 		if (b->rotateCenter == 0)
 			fprintf(out, ",REF,%g,%g,%g,", b->rotateFrom[0], b->rotateFrom[1], b->rotateFrom[2]);
+		if (b->incFaceId)
+			fprintf(out, ",INC_FACEID");
 
 		switch (b->detailTex) {
 		case TEX_DETAIL:
@@ -925,6 +948,7 @@ static int uiHandleCommands(SIT_Widget w, APTR cd, APTR ud)
 		{
 			SIT_SetValues(finder.lab90, SIT_Title, rot90Names[prefs.rot90], NULL);
 			SIT_SetValues((&finder.full)[prefs.detail], SIT_CheckState, True, NULL);
+			SIT_SetValues(finder.subdet, SIT_Enabled, prefs.detail == 0, NULL);
 			SIT_ListDeleteRow(finder.list, DeleteAllRows);
 			for (b = blockGetNth(0); b; NEXT(b))
 				boxAddOrUpdateList(b, True);
@@ -1242,6 +1266,8 @@ void uiCreate(SIT_Widget app)
 				"<button name=repeat buttonType=", SITV_CheckBox, "title='Repeat animation' top=MIDDLE,time left=WIDGET,info,0.5em>"
 				"<button name=play title=Play top=WIDGET,time,0.5em>"
 				"<button name=stop.danger title=Stop top=OPPOSITE,play left=WIDGET,play,0.5em>"
+				"<button name=cpanim title=Copy top=OPPOSITE,play left=WIDGET,stop,1em>"
+				"<button name=psanim.danger title=Paste top=OPPOSITE,play left=WIDGET,cpanim,0.5em>"
 			"</canvas>"
 
 		"</canvas>"

@@ -30,6 +30,7 @@
 			</Target>
 		</Build>
 		<Compiler>
+			<Add option="-Wshadow" />
 			<Add option="-Wall" />
 			<Add directory=".\include" />
 			<Add directory="..\external\includes" />
@@ -40,7 +41,11 @@
 			<Add library="opengl32" />
 			<Add library="user32" />
 		</Linker>
+		<Unit filename="chunks.h" />
 		<Unit filename="frustum.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="maps.c">
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="utils.c">

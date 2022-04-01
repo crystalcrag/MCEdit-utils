@@ -10,7 +10,10 @@
 
 #define EPSILON     0.001
 
+typedef uint8_t *                DATA8;
 typedef uint16_t *               DATA16;
+typedef uint32_t *               DATA32;
+typedef int16_t *                DATAS16;
 
 typedef float *                  vec;
 typedef float                    vec4[4];
@@ -82,5 +85,10 @@ float vecLength(vec4 A);
 void  vecNormalize(vec4 res, vec4 A);
 float vecDotProduct(vec4 A, vec4 B);
 void  vecCrossProduct(vec4 res, vec4 A, vec4 B);
+
+#define vec3Add(A, B) \
+	(A)[VX] += (B)[VX], \
+	(A)[VY] += (B)[VY], \
+	(A)[VZ] += (B)[VZ]
 
 #endif

@@ -1,5 +1,5 @@
 /*
- * Frustum.c : SITGL application to test frustum culling in 2d (XY plane).
+ * Frustum.c : SITGL application to test frustum culling of MCEdit v2 in 2d (XY plane).
  *
  * this part is dedicated to user interface management.
  *
@@ -14,8 +14,10 @@
 #include <math.h>
 #include "SIT.h"
 #include "frustum.h"
+#include "maps.h"
 
-static struct Frustum_t globals;
+struct Frustum_t globals;
+static Map map;
 
 static int SDLKtoSIT[] = {
 	SDLK_HOME,      SITK_Home,
@@ -130,36 +132,43 @@ static void setViewMat(void);
 #define TOVPX(X)      (paint->x + MARGIN + (X) * scalex)
 #define TOVPY(Y)      (paint->y + MARGIN + h - (Y) * scaley)
 
-#define TOCELLX(X)    (((X) - MARGIN) / globals.vpWidth * IMAGESIZE)
-#define TOCELLY(Y)    ((globals.vpHeight - ((Y) - MARGIN)) / globals.vpHeight * IMAGESIZE)
+#define TOCELLX(X)    (((X) - MARGIN) / globals.vpWidth * IMAGESIZEX)
+#define TOCELLY(Y)    ((globals.vpHeight - ((Y) - MARGIN)) / globals.vpHeight * IMAGESIZEY)
 
-#define FROMCELLX(X)  ((X) * globals.vpWidth / IMAGESIZE + MARGIN)
-#define FROMCELLY(Y)  (globals.vpHeight + MARGIN - (Y) * globals.vpHeight / IMAGESIZE)
+#define FROMCELLX(X)  ((X) * globals.vpWidth / IMAGESIZEX + MARGIN)
+#define FROMCELLY(Y)  (globals.vpHeight + MARGIN - (Y) * globals.vpHeight / IMAGESIZEY)
 
 #define ARROW         10
 
-static int paintFrustum(SIT_Widget view, APTR cd, APTR ud)
+static int paintFrustum(SIT_Widget view, APTR call_data, APTR ud)
 {
-	SIT_OnPaint * paint = cd;
+	SIT_OnPaint * paint = call_data;
 	NVGcontext *  vg = paint->nvg;
 	int i;
 
+	/* chunk grid */
 	nvgStrokeColorRGBA8(vg, "\x20\xCC\x20\xff");
 	nvgBeginPath(vg);
 	float w = globals.vpWidth  = paint->w - 2*MARGIN;
 	float h = globals.vpHeight = paint->h - 2*MARGIN;
 	float x, y;
-	for (i = 0; i <= CELLMAP; i ++)
+	for (i = 0; i <= CELLMAPX; i ++)
 	{
-		x = paint->x + w * i / CELLMAP + MARGIN;
-		y = paint->y + h * i / CELLMAP + MARGIN;
+		x = paint->x + w * i / CELLMAPX + MARGIN;
 		nvgMoveTo(vg, x, paint->y + MARGIN);
 		nvgLineTo(vg, x, paint->y + h + MARGIN);
+	}
 
+	for (i = 0; i <= CELLMAPY; i ++)
+	{
+		y = paint->y + h * i / CELLMAPY + MARGIN;
 		nvgMoveTo(vg, paint->x + MARGIN, y);
 		nvgLineTo(vg, paint->x + w + MARGIN, y);
 	}
 	nvgStroke(vg);
+
+	float scalex = w / IMAGESIZEX;
+	float scaley = h / IMAGESIZEY;
 
 	/* chunk bitmap */
 	x = paint->x + MARGIN;
@@ -172,9 +181,72 @@ static int paintFrustum(SIT_Widget view, APTR cd, APTR ud)
 	nvgFillPaint(vg, fill);
 	nvgFill(vg);
 
-	float scalex = w / IMAGESIZE;
-	float scaley = h / IMAGESIZE;
-	w /= CELLMAP;
+	Chunk chunk;
+	for (i = 0, chunk = map->center; i < CELLMAPX; i ++, chunk ++)
+	{
+		int j;
+		for (j = 0; j < CELLMAPY; j ++)
+		{
+			static uint8_t coords[] = { /* 15 cnx, but only 6 used in 2d */
+			/* SE */ 0,0,0,0,
+			/* SN */ 0,0,0,0,
+			/* SW */ 0,0,0,0,
+			/* ST */ 0,0,0,0,
+			/* SB */ 0,0,0,0,
+			/* EN */ 0,0,0,0,
+			/* EW */ 0, CELLSZ/2,        CELLSZ, CELLSZ/2,
+			/* ET */ CELLSZ, CELLSZ/2,   CELLSZ/2, CELLSZ,
+			/* EB */ CELLSZ, CELLSZ/2,   CELLSZ/2, 0,
+			/* NW */ 0,0,0,0,
+			/* NT */ 0,0,0,0,
+			/* NB */ 0,0,0,0,
+			/* WT */ 0, CELLSZ/2,        CELLSZ/2, CELLSZ,
+			/* WB */ 0, CELLSZ/2,        CELLSZ/2, 0,
+			/* TB */ CELLSZ/2, 0,        CELLSZ/2, CELLSZ,
+			};
+			ChunkData cd = chunk->layer[j];
+			if (! cd) continue;
+			/*
+			 * highlight chunks whose outflags[] have to be computed: most expensive operation:
+			 * worse case being 8 mat4 / vec4 product per chunk
+			 */
+			if (cd->frame == map->frame)
+			{
+				/* chunk is in frustum */
+				nvgStrokeColorRGBA8(vg, cd->slot > 0 ? "\xff\x55\x55\xff" : "\xff\xff\xff\xff");
+				nvgBeginPath(vg);
+				x = TOVPX(chunk->X);
+				y = TOVPY(cd->Y + CELLSZ);
+				float szw = TOVPX(chunk->X + CELLSZ) - x;
+				float szh = TOVPY(cd->Y) - y;
+				nvgRect(vg, x, y, szw, szh);
+				nvgStroke(vg);
+				if (cd->slot > 0)
+				{
+					TEXT number[10];
+					sprintf(number, "%d", cd->slot);
+					nvgText(vg, x + (szw - nvgTextBounds(vg, 0, 0, number, NULL, NULL)) * 0.5f, y + szh * 0.5f, number, NULL);
+				}
+			}
+			/* chunk cnx graph (cave culling) */
+			if (globals.showCnx && cd->cnxGraph > 0 && cd->slot == 0 /* not a fake chunk */)
+			{
+				int cnx;
+				DATA8 coord;
+				for (cnx = cd->cnxGraph, coord = coords; cnx > 0; cnx >>= 1, coord += 4)
+				{
+					if (coord[2] == 0 || (cnx & 1) == 0) continue;
+					nvgStrokeColorRGBA8(vg, "\xff\x20\x20\xff");
+					nvgBeginPath(vg);
+					nvgMoveTo(vg, x = TOVPX(chunk->X + coord[0]), y = TOVPY(cd->Y + coord[1]));
+					nvgLineTo(vg, x = TOVPX(chunk->X + coord[2]), y = TOVPY(cd->Y + coord[3]));
+					nvgStroke(vg);
+				}
+			}
+		}
+	}
+
+	w /= CELLMAPX;
 
 	nvgScissor(vg, paint->x, paint->y, paint->w, paint->h);
 	nvgStrokeColorRGBA8(vg, "\x14\xfd\xce\xff");
@@ -218,6 +290,7 @@ static int paintFrustum(SIT_Widget view, APTR cd, APTR ud)
 	nvgClosePath(vg);
 	nvgStroke(vg);
 
+	TEXT buffer[64];
 	if (globals.drawMode == 1)
 	{
 		/* show outline of brush */
@@ -225,8 +298,8 @@ static int paintFrustum(SIT_Widget view, APTR cd, APTR ud)
 		DATA16 eof    = coords + globals.brushVector.count;
 		while (coords < eof)
 		{
-			float x = TOVPX(globals.brushX - (globals.brushSize>>1) + coords[1]);
-			float y = TOVPY(globals.brushY + (globals.brushSize>>1) + coords[2]);
+			x = TOVPX(globals.brushX - (globals.brushSize>>1) + coords[1]);
+			y = TOVPY(globals.brushY + (globals.brushSize>>1) + coords[2]);
 
 			nvgBeginPath(vg);
 			nvgMoveTo(vg, roundf(x)+0.5f, roundf(y)+0.5f);
@@ -243,7 +316,15 @@ static int paintFrustum(SIT_Widget view, APTR cd, APTR ud)
 			}
 			nvgStroke(vg);
 		}
+		/* mouse coords in "world" space */
+		i = sprintf(buffer, "X: %.1f Y: %.1f", globals.posX, globals.posY);
 	}
+	else
+	{
+		/* show chunk coord */
+		i = sprintf(buffer, "Chunk: %d, %d", (int) globals.posX >> 4, (int) globals.posY >> 4);
+	}
+	nvgText(vg, paint->x + MARGIN, paint->y + MARGIN, buffer, buffer+i);
 
 	return 1;
 }
@@ -261,10 +342,25 @@ static void adjustBrushSize(int dir)
 	}
 }
 
+static void adjustFOV(int step)
+{
+	/* adjust FOV */
+	int fov = globals.FOV + step;
+	if (fov < 20) fov = 20;
+	if (fov > 90) fov = 90;
+	if (fov != globals.FOV)
+	{
+		globals.FOV = fov;
+		setViewMat();
+		SIT_SetValues(globals.brush, SIT_Title | XfMt, "%d", fov, NULL);
+	}
+}
+
+
 /* paint a single dot */
 static void paintBrush(int x, int y, int color)
 {
-	y = IMAGESIZE - y;
+	y = IMAGESIZEY - y;
 	x -= globals.brushSize >> 1;
 	y -= globals.brushSize >> 1;
 
@@ -273,22 +369,51 @@ static void paintBrush(int x, int y, int color)
 	for (i = globals.brushSize, points = globals.brushRange; i > 0; i --, points ++, y ++)
 	{
 		if (y < 0) continue;
-		if (y >= IMAGESIZE) break;
+		if (y >= IMAGESIZEY) break;
 		int x1 = x + (points[0] & 0xff);
 		int x2 = x1 + (points[0] >> 8);
 		if (x1 < 0) x1 = 0;
-		if (x2 > IMAGESIZE) x2 = IMAGESIZE;
+		if (x2 > IMAGESIZEX) x2 = IMAGESIZEX;
 		if (x1 >= x2) continue;
-		memset(globals.chunkBitmap + x1 + y * IMAGESIZE, color, x2 - x1);
+		memset(globals.chunkBitmap + x1 + y * IMAGESIZEX, color, x2 - x1);
 	}
-	if (globals.nvgCtx)
+	if (globals.nvgCtx && (color & 0x100) == 0)
+	{
+		mapUpdateCnxGraph(map, globals.chunkBitmap, x, y, globals.brushSize, globals.brushSize);
 		nvgUpdateImage(globals.nvgCtx, globals.nvgChunkImg, globals.chunkBitmap);
+	}
 }
 
 /* paint a line with dots using bresenham line drawing */
-static void paintLineBrush(int sx, int sy, int ex, int ey)
+static void paintLineBrush(int x0, int y0, int x1, int y1, int color)
 {
-	//
+	int rect[] = {1e6, 1e6, -1e6, -1e6};
+	int dx =  abs(x1-x0), sx = x0<x1 ? 1 : -1;
+	int dy = -abs(y1-y0), sy = y0<y1 ? 1 : -1;
+	int err = dx+dy;
+	int sz = globals.brushSize >> 1;
+
+	/* bresenham line drawing */
+	for(;;)
+	{
+		paintBrush(x0, y0, color | 0x100);
+		int xs = x0 - sz;
+		int ys = (IMAGESIZEY - y0) + sz;
+		if (xs < rect[0]) rect[0] = xs;
+		if (ys < rect[1]) rect[1] = ys;
+		if (xs + globals.brushSize > rect[2]) rect[2] = xs + globals.brushSize;
+		if (ys + globals.brushSize > rect[3]) rect[3] = ys + globals.brushSize;
+
+		if (x0 == x1 && y0 == y1) break;
+		int e2 = err << 1;
+		if (e2 >= dy) { err += dy; x0 += sx; }
+		if (e2 <= dx) { err += dx; y0 += sy; }
+	}
+	if (globals.nvgCtx)
+	{
+		mapUpdateCnxGraph(map, globals.chunkBitmap, rect[0], rect[1], rect[2] - rect[0], rect[3] - rect[1]);
+		nvgUpdateImage(globals.nvgCtx, globals.nvgChunkImg, globals.chunkBitmap);
+	}
 }
 
 static int handleMouse(SIT_Widget w, APTR cd, APTR ud)
@@ -328,32 +453,15 @@ static int handleMouse(SIT_Widget w, APTR cd, APTR ud)
 			return 2;
 		case SITOM_ButtonWheelDown:
 			if (globals.drawMode == 0)
-			{
-				/* adjust FOV */
-				int fov = globals.FOV - 5;
-				if (fov < 20) fov = 20;
-				if (fov != globals.FOV)
-				{
-					globals.FOV = fov;
-					setViewMat();
-					SIT_ForceRefresh();
-				}
-			}
-			else adjustBrushSize(-1);
+				adjustFOV(-5);
+			else
+				adjustBrushSize(-1);
 			break;
 		case SITOM_ButtonWheelUp:
 			if (globals.drawMode == 0)
-			{
-				int fov = globals.FOV + 5;
-				if (fov > 90) fov = 90;
-				if (fov != globals.FOV)
-				{
-					globals.FOV = fov;
-					setViewMat();
-					SIT_ForceRefresh();
-				}
-			}
-			else adjustBrushSize(1);
+				adjustFOV(5);
+			else
+				adjustBrushSize(1);
 		default:
 			break;
 		}
@@ -363,12 +471,25 @@ static int handleMouse(SIT_Widget w, APTR cd, APTR ud)
 			/* track which "pixel" of the chunks bitmap the mouse is over */
 			int cellX = TOCELLX(msg->x);
 			int cellY = TOCELLY(msg->y);
-			if (cellX != globals.brushX || cellY != globals.brushY)
+			/* chunk coords */
+			globals.posX = TOCELLX((float)msg->x);
+			globals.posY = TOCELLY((float)msg->y);
+
+			if (globals.drawMode == 1)
+			{
+				if (cellX != globals.brushX || cellY != globals.brushY)
+				{
+					globals.brushX = cellX;
+					globals.brushY = cellY;
+					SIT_ForceRefresh();
+				}
+			}
+			else if ((cellX >> 4) != (globals.brushX >> 4) ||
+			         (cellY >> 4) != (globals.brushY >> 4))
 			{
 				globals.brushX = cellX;
 				globals.brushY = cellY;
-				if (globals.drawMode == 1)
-					SIT_ForceRefresh();
+				SIT_ForceRefresh();
 			}
 		}
 		break;
@@ -380,7 +501,7 @@ static int handleMouse(SIT_Widget w, APTR cd, APTR ud)
 			int cellY = TOCELLY(msg->y);
 			if (cellX != globals.brushX || cellY != globals.brushY)
 			{
-				paintLineBrush(globals.brushX, globals.brushY, cellX, cellY);
+				paintLineBrush(globals.brushX, globals.brushY, cellX, cellY, color);
 				globals.brushX = cellX;
 				globals.brushY = cellY;
 				SIT_ForceRefresh();
@@ -390,13 +511,17 @@ static int handleMouse(SIT_Widget w, APTR cd, APTR ud)
 		{
 			set_camera:
 			/* change camera angle */
-			if (abs(startX - msg->x) > 20 ||
-			    abs(startY - msg->y) > 20)
+			if (abs(startX - msg->x) > 10 ||
+			    abs(startY - msg->y) > 10)
 			{
 				float x = TOCELLX(msg->x);
 				float y = TOCELLY(msg->y);
-				globals.lookAt[VX] = x - globals.camera[VX];
-				globals.lookAt[VY] = y - globals.camera[VY];
+				/* +/- 90 pitch does not work with matLookAt */
+				if (x != globals.camera[VX])
+				{
+					globals.lookAt[VX] = x - globals.camera[VX];
+					globals.lookAt[VY] = y - globals.camera[VY];
+				}
 				setViewMat();
 				SIT_ForceRefresh();
 			}
@@ -410,20 +535,57 @@ static int handleMouse(SIT_Widget w, APTR cd, APTR ud)
 	return 1;
 }
 
+
+/* check if current mouse position is inside frustum matrix */
+static int handleCommands(SIT_Widget w, APTR cd, APTR ud)
+{
+	vec4 pos = {globals.posX, globals.posY, globals.camera[VZ], 1};
+
+	matMultByVec(pos, globals.matMVP, pos);
+
+	int sector = 0;
+	if (pos[0] <= -pos[3]) sector |= 1,  fprintf(stderr, "left of left plane\n");
+	if (pos[0] >=  pos[3]) sector |= 2,  fprintf(stderr, "right of right plane\n");
+	if (pos[1] <= -pos[3]) sector |= 4,  fprintf(stderr, "below bottom plane\n");
+	if (pos[1] >=  pos[3]) sector |= 8,  fprintf(stderr, "above top plane\n");
+	if (pos[2] <= -pos[3]) sector |= 16, fprintf(stderr, "behind near plane\n");
+	if (pos[2] >=  pos[3]) sector |= 32, fprintf(stderr, "after far plane\n");
+
+	if (sector == 0) fprintf(stderr, "in frustum\n");
+
+	return 1;
+}
+
 /* OnActivate handler for save button */
 static int saveChunks(SIT_Widget w, APTR cd, APTR ud)
 {
 	FILE * pbm = fopen("chunks.pbm", "wb");
-	fprintf(pbm, "P5\n%d %d 255\n", IMAGESIZE, IMAGESIZE);
-	fwrite(globals.chunkBitmap, 1, IMAGESIZE * IMAGESIZE, pbm);
+	fprintf(pbm, "P5\n%d %d 255\n", IMAGESIZEX, IMAGESIZEY);
+	fwrite(globals.chunkBitmap, 1, IMAGESIZEX * IMAGESIZEY, pbm);
 	fclose(pbm);
+	return 1;
+}
+
+static int refresh(SIT_Widget w, APTR cd, APTR ud)
+{
+	/* hmm, OnActivate is only triggered after mouse is released :-/ */
+	SIT_ForceRefresh();
+	return 1;
+}
+
+/* change mode: draw or move */
+static int showsize(SIT_Widget w, APTR cd, APTR ud)
+{
+	/* draw mode: show brush size, move mode: show FOV */
+	SIT_SetValues(globals.label, SIT_Title, globals.drawMode == 0 ? "FOV:" : "Brush:", NULL);
+	SIT_SetValues(globals.brush, SIT_Title | XfMt, "%d", globals.drawMode == 0 ? globals.FOV : globals.brushSize, NULL);
 	return 1;
 }
 
 static void createUI(SIT_Widget app)
 {
 	TEXT size[16];
-	sprintf(size, "%d", globals.brushSize);
+	sprintf(size, "%d", globals.drawMode == 0 ? globals.FOV : globals.brushSize);
 	SIT_CreateWidgets(app,
 		"<canvas name=frame left=FORM top=FORM right=FORM bottom=FORM>"
 		"  <label name=msg title=Show:>"
@@ -433,10 +595,10 @@ static void createUI(SIT_Widget app)
 			"title='[Move]' left=WIDGET,msg2,0.5em bottom=FORM>"
 		"  <button name=draw radioID=1 radioGroup=1 curValue=", &globals.drawMode, "buttonType=", SITV_ToggleButton,
 			"title='[Draw]' left=WIDGET,move,0.5em bottom=FORM>"
-		"  <label name=msg3 title='Brush:' top=MIDDLE,draw left=WIDGET,draw,1em>"
+		"  <label name=msg3 title=", globals.drawMode == 0 ? "FOV:" : "Brush:", "top=MIDDLE,draw left=WIDGET,draw,1em>"
 		"  <label name=size title=", size, "top=MIDDLE,cnx left=WIDGET,msg3,0.5em>"
 		"  <label name=msg4 title='Chunk:' top=MIDDLE,draw left=WIDGET,size,1em>"
-		"  <label name=total title=0/0 top=MIDDLE,cnx left=WIDGET,msg4,0.5em>"
+		"  <label name=total top=MIDDLE,cnx left=WIDGET,msg4,0.5em>"
 		"  <button name=save title=[SAVE] bottom=FORM right=FORM>"
 		"</canvas>"
 
@@ -450,21 +612,38 @@ static void createUI(SIT_Widget app)
 
 	globals.brush  = SIT_GetById(app, "size");
 	globals.chunks = SIT_GetById(app, "total");
+	globals.label  = SIT_GetById(app, "msg3");
 	setBrushRange(globals.brushSize);
 
+	SIT_AddCallback(SIT_GetById(app, "move"), SITE_OnActivate, showsize, NULL);
+	SIT_AddCallback(SIT_GetById(app, "draw"), SITE_OnActivate, showsize, NULL);
+	SIT_AddCallback(SIT_GetById(app, "cnx"),  SITE_OnActivate, refresh, NULL);
 	SIT_AddCallback(SIT_GetById(app, "save"), SITE_OnActivate, saveChunks, NULL);
 
+	SIT_SetValues(globals.chunks, SIT_Title|XfMt, "%d/%d", map->frustumChunks, map->totalChunks, NULL);
+
 	SIT_GetValues(app, SIT_NVGcontext, &globals.nvgCtx, NULL);
-	globals.nvgChunkImg = nvgCreateImageMask(globals.nvgCtx, IMAGESIZE, IMAGESIZE, NVG_IMAGE_MASK | NVG_IMAGE_NEAREST, globals.chunkBitmap);
+	globals.nvgChunkImg = nvgCreateImageMask(globals.nvgCtx, IMAGESIZEX, IMAGESIZEY, NVG_IMAGE_MASK | NVG_IMAGE_NEAREST, globals.chunkBitmap);
 }
 
 static void setViewMat(void)
 {
 	mat4 P, MV;
+	vec4 lookAt;
+	memcpy(lookAt, globals.camera, sizeof globals.camera);
+	vec3Add(lookAt, globals.lookAt);
+
 	matPerspective(P, globals.FOV, 1, ZNEAR, ZFAR);
-	matLookAt(MV, globals.camera, globals.lookAt, (vec4) {0, 1, 0});
+	matLookAt(MV, globals.camera, lookAt, (vec4) {0, 1, 0});
 	matMult(globals.matMVP, P, MV);
 	matInverse(globals.matInvMVP, globals.matMVP);
+
+	mapViewFrustum(map, globals.camera);
+
+	SIT_SetValues(globals.chunks, SIT_Title|XfMt, "%d/%d", map->frustumChunks, map->totalChunks, NULL);
+
+//	fprintf(stderr, "camera = %g,%g,%g lookAt = %g,%g,%g\n", globals.camera[VX], globals.camera[VY], globals.camera[VZ],
+//		lookAt[VX], lookAt[VY], lookAt[VZ]);
 
 	float fov   = globals.FOV * (M_PI / 360);
 	vec   pt1   = globals.camera;
@@ -519,7 +698,8 @@ static void loadPrefs(void)
 	value = GetINIValue(ini, "Camera");
 
 	globals.camera[VT] = 1;
-	if (value == NULL || sscanf(value, "%fx%f", &globals.camera[VX], &globals.camera[VY]) != 2)
+	globals.camera[VZ] = CELLSZ/2;
+	if (value == NULL || sscanf(value, "%f,%f", &globals.camera[VX], &globals.camera[VY]) != 2)
 	{
 		globals.camera[VX] = CELLSZ * 1.5;
 		globals.camera[VY] = CELLSZ * 11.5;
@@ -528,7 +708,8 @@ static void loadPrefs(void)
 	value = GetINIValue(ini, "LookAt");
 
 	globals.lookAt[VT] = 1;
-	if (value == NULL || sscanf(value, "%fx%f", &globals.lookAt[VX], &globals.lookAt[VY]) != 2)
+	globals.lookAt[VZ] = 0;
+	if (value == NULL || sscanf(value, "%f,%f", &globals.lookAt[VX], &globals.lookAt[VY]) != 2)
 	{
 		globals.lookAt[VX] = CELLSZ;
 		globals.lookAt[VY] = - CELLSZ / 2;
@@ -537,19 +718,20 @@ static void loadPrefs(void)
 	FreeINI(ini);
 
 	/* load chunk bitmap too */
-	globals.chunkBitmap = calloc(IMAGESIZE, IMAGESIZE);
+	globals.chunkBitmap = calloc(IMAGESIZEX, IMAGESIZEY);
 
 	FILE * in = fopen("chunks.pbm", "rb");
 
 	if (in)
 	{
 		STRPTR line = globals.chunkBitmap;
-		fgets(line, IMAGESIZE * IMAGESIZE, in);
+		/* Q'n'D PBM reader */
+		fgets(line, IMAGESIZEX * IMAGESIZEY, in);
 		if (line[0] == 'P' && line[1] == '5')
 		{
 			int numId = 0, lineNum = 1;
 			int width = 0, height = 0, max = 0;
-			while (lineNum < 10 && numId < 3 && fgets(line, IMAGESIZE * IMAGESIZE, in))
+			while (lineNum < 10 && numId < 3 && fgets(line, IMAGESIZEX * IMAGESIZEY, in))
 			{
 				lineNum ++;
 				if (line[0] == '#') continue;
@@ -567,13 +749,14 @@ static void loadPrefs(void)
 					numId ++;
 				}
 			}
-			if (width == IMAGESIZE && height == IMAGESIZE && max == 255)
+			if (width == IMAGESIZEX && height >= IMAGESIZEY && max == 255)
 			{
-				fread(line, 1, IMAGESIZE * IMAGESIZE, in);
+				fread(line, 1, IMAGESIZEX * IMAGESIZEY, in);
 			}
 		}
 		fclose(in);
 	}
+	map = mapInit(CELLMAPX, globals.chunkBitmap, CELLMAPX, CELLMAPY);
 }
 
 int main(int nb, char * argv[])
@@ -599,9 +782,7 @@ int main(int nb, char * argv[])
 	}
 	SDL_WM_SetCaption("Frustum culling", "Frustum culling");
 
-	app = SIT_Init(NVG_ANTIALIAS | NVG_STENCIL_STROKES, width, height, "resources/analogtv.css", 1);
-
-	FrameSetFPS(50);
+	app = SIT_Init(SIT_NVG_FLAGS, width, height, "resources/analogtv.css", 1);
 
 	if (app == NULL)
 	{
@@ -616,6 +797,7 @@ int main(int nb, char * argv[])
 		{'2', SITE_OnActivate, 1, "draw"},
 		{'3', SITE_OnActivate, 0, "cnx"},
 		{SITK_FlagCtrl + 'S', SITE_OnActivate, 0, "save"},
+		{SITK_F3, SITE_OnActivate, 0, NULL, handleCommands},
 		{0}
 	};
 
@@ -623,8 +805,7 @@ int main(int nb, char * argv[])
 	SIT_SetValues(app,
 		SIT_DefSBSize,   SITV_Em(0.5),
 		SIT_RefreshMode, SITV_RefreshAsNeeded,
-		SIT_AddFont,     "sans-serif",      "Courier New/Bold",
-		SIT_AddFont,     "sans-serif-bold", "Courier New/Bold",
+		SIT_AddFont,     "sans-serif", "Courier New/Bold",
 		SIT_AccelTable,  accels,
 		SIT_ExitCode,    &exitProg,
 		NULL
@@ -636,6 +817,7 @@ int main(int nb, char * argv[])
 	SDL_EnableUNICODE(1);
 
 	glViewport(0, 0, width, height);
+	FrameSetFPS(40);
 
 	while (! exitProg)
 	{
@@ -644,13 +826,6 @@ int main(int nb, char * argv[])
 		{
 			switch (event.type) {
 			case SDL_KEYDOWN:
-				switch (event.key.keysym.sym) {
-				case SDLK_F4:
-					SIT_Nuke(SITV_NukeCtrl);
-					glClear(GL_COLOR_BUFFER_BIT);
-					break;
-				default: break;
-				}
 			case SDL_KEYUP:
 				{
 					int * sdlk;
@@ -686,8 +861,6 @@ int main(int nb, char * argv[])
 				break;
 			case SDL_QUIT:
 				exitProg = 1;
-			case SDL_USEREVENT:
-				break;
 			default:
 				continue;
 			}

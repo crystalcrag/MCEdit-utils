@@ -27,8 +27,10 @@ static char texCoord[] = {
 };
 
 static uint8_t cubeIndices[6*4] = { /* face (quad) of cube: S, E, N, W, T, B */
-	9, 0, 3, 6,    6, 3, 15, 18,     18, 15, 12, 21,     21, 12, 0, 9,    21, 9, 6, 18,      15, 3, 0, 12
+	9, 0, 3, 6,    6, 3, 15, 18,     18, 15, 12, 21,     21, 12, 0, 9,    21, 9, 6, 18,      0, 12, 15, 3
 };
+
+STRPTR detailTexNames[] = {"TEX_CUBEMAP", "TEX_INHERIT", "TEX_DETAIL"};
 
 extern uint8_t cubeVertex[];
 
@@ -104,7 +106,7 @@ STRPTR blockParseFormat(STRPTR fmt)
 
 	if (strncmp(fmt, "FACES,", 6) == 0)
 	{
-		/* FACES,63,TEX_CUBEMAP,INVERT,SIZE,4,16,4,TR,6,0,6,ROT,0,0,0,ROTCAS,0,0,0,REF,0,0,0,ROT90,0,TEX,INV_FACEID */
+		/* FACES,63,TEX_CUBEMAP,INVERT,SIZE,4,16,4,TR,6,0,6,ROT,0,0,0,ROTCAS,0,0,0,REF,0,0,0,ROT90,0,INC_FACEID,TEX */
 		DATA16 tex;
 		b = blockAddDefaultBox();
 
@@ -112,6 +114,8 @@ STRPTR blockParseFormat(STRPTR fmt)
 		while (fmt)
 		{
 			if (*fmt == ',') fmt ++;
+			while (*fmt && isspace(*fmt)) fmt ++;
+			if (*fmt == 0 || strncmp(fmt, "FACES,", 6) == 0) return fmt;
 			if (! ('A' <= *fmt && *fmt <= 'Z')) return NULL;
 			p = strchr(fmt, ',');
 			if (p) *p++ = 0; else p = NULL;
@@ -146,7 +150,7 @@ STRPTR blockParseFormat(STRPTR fmt)
 				b->rotateCenter = 0;
 				break;
 			case 8: /* ROT90: rotate 90deg step */
-				prefs.rot90 = strtol(p, &p, 10);
+				prefs.rot90 = strtol(p, &p, 10) / 90;
 				break;
 			case 9: /* TEX: texture coord */
 				switch (b->detailTex) {
@@ -182,6 +186,9 @@ STRPTR blockParseFormat(STRPTR fmt)
 				break;
 			case 10: /* invert normals */
 				b->faces |= BHDR_INVERTNORM;
+				break;
+			case 11: /* not used by TileFinder, but needed by MCEdit */
+				b->incFaceId = 1;
 				break;
 			default:
 				return NULL;
@@ -252,7 +259,7 @@ Block blockAddDefaultBox(void)
 	box = calloc(sizeof *box, 1);
 	box->size[0] = box->size[1] = box->size[2] = 16;
 	box->faces = 63;
-	box->detailTex = first ? (prefs.detail ? TEX_DETAIL : TEX_CUBEMAP) : TEX_CUBEMAP_INHERIT;
+	box->detailTex = prefs.detail ? TEX_DETAIL : (first == NULL ? TEX_CUBEMAP : TEX_CUBEMAP_INHERIT);
 	box->rotateCenter = 1;
 
 	sprintf(box->name, "Box %d", ++ prefs.nbBlocks);
@@ -306,19 +313,27 @@ void blockCopy(void)
 	{
 		DATA16 tex;
 		int    faces;
-		/* faces: faces:0-5, inv normals:6, cubeMap:7, continue:8, rot90:9-10, detailFaces:11-16, incFaceId:17 */
-		faces = b->faces | (!b->detailTex << 7) | ((b->node.ln_Next != NULL) << 8) | (prefs.rot90 << 9);
-		//if (! detail && b->detailTex) faces |= b->detailFaces<<11;
+
 		p = block;
-		p += sprintf(p, "%d", faces);
-		p += sprintf(p, ",%g,%g,%g", b->size[0], b->size[1], b->size[2]);
-		p += sprintf(p, ",%g,%g,%g", b->trans[0], b->trans[1], b->trans[2]);
-		p += sprintf(p, ",%g,%g,%g", b->rotate[0], b->rotate[1], b->rotate[2]);
-		p += sprintf(p, ",%g,%g,%g", b->cascade[0], b->cascade[1], b->cascade[2]);
-		faces &= 63;
+		p += sprintf(p, "FACES,%d,%s", b->faces & 63, detailTexNames[b->detailTex]);
+		if (b->faces & BHDR_INVERTNORM) p += sprintf(p, ",INVERT");
+		if (b->node.ln_Prev == NULL && prefs.rot90 > 0) p += sprintf(p, ",ROT90,%d", prefs.rot90 * 90);
+		p += sprintf(p, ",SIZE,%g,%g,%g", b->size[0], b->size[1], b->size[2]);
+		if (b->trans[VX] != 0 || b->trans[VY] != 0 || b->trans[VZ] != 0)
+			p += sprintf(p, ",TR,%g,%g,%g", b->trans[VX], b->trans[VY], b->trans[VZ]);
+		if (b->rotate[VX] != 0 || b->rotate[VY] != 0 || b->rotate[VZ] != 0)
+			p += sprintf(p, ",ROT,%g,%g,%g", b->rotate[VX], b->rotate[VY], b->rotate[VZ]);
+		if (b->cascade[VX] != 0 || b->cascade[VY] != 0 || b->cascade[VZ] != 0)
+			p += sprintf(p, ",ROTCAS,%g,%g,%g", b->cascade[VX], b->cascade[VY], b->cascade[VZ]);
+		if (b->rotateCenter == 0)
+			p += sprintf(p, ",REF,%g,%g,%g,", b->rotateFrom[VX], b->rotateFrom[VY], b->rotateFrom[VZ]);
+		if (b->incFaceId)
+			p += sprintf(p, ",INC_FACEID");
+
 		switch (b->detailTex) {
 		case TEX_DETAIL:
-			for (tex = b->texUV, faces &= 63; faces; faces >>= 1)
+			p += sprintf(p, ",TEX");
+			for (tex = b->texUV, faces = b->faces & 63; faces; faces >>= 1)
 			{
 				if (faces & 1)
 				{
@@ -329,12 +344,13 @@ void blockCopy(void)
 			}
 			break;
 		case TEX_CUBEMAP:
+			p += sprintf(p, ",TEX");
 			for (tex = b->texUV, faces = 0; faces < 6; faces ++)
 				for (j = 0; j < 8; j += 2, tex += 2)
 					p += sprintf(p, ",%d", tex[0] + tex[1] * 513);
 		}
-		strcpy(p, ",\n");
-		AddBytes(&mem, block, p + 2 - block);
+		p += sprintf(p, ",\n");
+		AddBytes(&mem, block, p - block);
 	}
 	if (mem)
 	{
@@ -348,7 +364,6 @@ Bool blockPaste(void)
 {
 	ListHead boxes;
 	TEXT     extract[20];
-	int      detail = prefs.detail;
 	int      rot90  = prefs.rot90;
 	int      size   = 0;
 	STRPTR   clip   = SIT_GetFromClipboard(&size);
@@ -368,8 +383,6 @@ Bool blockPaste(void)
 	prefs.nbBlocks = 0;
 	ListNew(&boxList);
 
-	if (IsDef(clip))
-		prefs.detail = (atoi(clip) & 128) == 0;
 	while (IsDef(clip))
 	{
 		while (isspace(*clip)) clip ++;
@@ -377,11 +390,15 @@ Bool blockPaste(void)
 		clip = blockParseFormat(clip);
 	}
 	if (clip && prefs.nbBlocks > 0)
+	{
+		Block b;
+		for (b = HEAD(boxList); b && b->detailTex == TEX_DETAIL; NEXT(b));
+		prefs.detail = b == NULL;
 		return True;
+	}
 
 	/* parsing failed: restore previous state */
 	prefs.nbBlocks = count;
-	prefs.detail = detail;
 	prefs.rot90 = rot90;
 
 	ListNode * node;
@@ -522,10 +539,6 @@ static DATA16 blockAdjustUV(float vertex[12], DATA16 tex)
 
 #define BASEVTX            2048
 #define ORIGINVTX          15360
-#define MIDVTX             (1 << 13)
-#define RELDX(x)           ((x) + MIDVTX - X1)
-#define RELDY(x)           ((x) + MIDVTX - Y1)
-#define RELDZ(x)           ((x) + MIDVTX - Z1)
 #define VERTEX(x)          ((int) ((x) * BASEVTX) + ORIGINVTX)
 
 /* chunk vertex data */
@@ -670,11 +683,11 @@ void blockGenVertexBuffer(void)
 			Z1 = VERTEX(vertex[VZ+9]);   Z2 = VERTEX(vertex[VZ]);   Z3 = VERTEX(vertex[VZ+6]);
 
 			out[0] = X1 | (Y1 << 16);
-			out[1] = Z1 | (RELDX(X2) << 16) | ((texV & 512) << 21);
-			out[2] = RELDY(Y2) | (RELDZ(Z2) << 14);
-			out[3] = RELDX(X3) | (RELDY(Y3) << 14);
-			out[4] = RELDZ(Z3) | (texU << 14) | (texV << 23);
-			out[5] = ((texUV[4] + 128 - texU) << 16) |
+			out[1] = Z1 | (X2 << 16);
+			out[2] = Y2 | (Z2 << 16);
+			out[3] = X3 | (Y3 << 16);
+			out[4] = Z3 | (texU << 16) | (texV << 25);
+			out[5] = ((texUV[4] + 128 - texU) << 16) | (texV >> 7) |
 			         ((texUV[5] + 128 - texV) << 24) | (norm << 7);
 			/* face id + primitive id for selection (should be light values here) */
 			out[6] = ((i+4) >> 2) | (nth << 3);

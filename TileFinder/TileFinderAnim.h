@@ -8,7 +8,7 @@
 #define TILE_FINDER_ANIM_H
 
 void animInit(SIT_Widget parent);
-void animSynBox(Block, int add);
+void animSyncBox(Block, int add);
 void animShow(void);
 
 struct TileFinderAnim_t
@@ -16,7 +16,7 @@ struct TileFinderAnim_t
 	SIT_Widget applyTo;
 	SIT_Widget graph, repeat;
 	SIT_Widget params, time;
+	Block      current;
 };
-
 
 #endif

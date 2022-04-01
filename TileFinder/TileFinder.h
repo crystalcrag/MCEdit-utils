@@ -10,6 +10,7 @@
 #include "utils.h"
 
 typedef struct Block_t *    Block;
+typedef struct Anim_t *     Anim;
 
 
 /* from TileFinderUI.c */
@@ -54,6 +55,8 @@ struct Block_t
 	uint8_t  detailTex;          /* TEX_* */
 	uint8_t  rotateCenter;       /* 0 or 1 */
 	uint8_t  ref;                /* primitive used as reference (*) */
+	uint8_t  incFaceId;          /* informative, used by MCEdit only */
+	Anim     anim;
 };
 
 enum
@@ -61,6 +64,16 @@ enum
 	TEX_CUBEMAP = 0,
 	TEX_CUBEMAP_INHERIT = 1,
 	TEX_DETAIL = 2
+};
+
+struct Anim_t
+{
+	float   endSize[3];
+	float   endRotate[3];
+	float   endTrans[3];
+	float   points[16];
+	uint8_t curve;
+	uint8_t nbPt;
 };
 
 struct Prefs_t

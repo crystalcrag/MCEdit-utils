@@ -32,8 +32,8 @@
 		<Compiler>
 			<Add option="-Wshadow" />
 			<Add option="-Wall" />
-			<Add directory="include" />
-			<Add directory="..\external\includes" />
+			<Add directory="..\includes" />
+			<Add directory="..\..\external\includes" />
 		</Compiler>
 		<Linker>
 			<Add library="user32" />

@@ -90,7 +90,7 @@ static void readPrefs(STRPTR path)
 			case 1: prefs.bbox   = atoi(sep); break;
 			case 2: prefs.width  = atoi(sep); break;
 			case 3: prefs.height = atoi(sep); break;
-			case 4: CopyString(prefs.lastTex, sep, sizeof prefs.lastTex); break;
+			case 4: CopyString(prefs.lastTex, sep, sizeof prefs.lastTex); StripCRLF(prefs.lastTex); break;
 			case 5: blockParseFormat(sep);
 			}
 		}

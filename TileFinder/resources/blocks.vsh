@@ -29,8 +29,8 @@ void main(void)
 	/* simply extract value from vertex buffers, and let geometry shader output real value for fsh */
 	uint Usz = bitfieldExtract(info.y, 16, 8);
 	uint Vsz = bitfieldExtract(info.y, 24, 8);
-	uint U   = bitfieldExtract(info.x, 14, 9);
-	uint V   = bitfieldExtract(info.x, 23, 9) | (bitfieldExtract(position.y, 30, 1) << 9);
+	uint U   = bitfieldExtract(info.x, 16, 9);
+	uint V   = bitfieldExtract(info.x, 25, 7) | (bitfieldExtract(info.y, 0, 2) << 7);
 
 	/* only 10 and 9 bits of precision, ideally we woud need 11 and 10, but that trick does the job nicely */
 	if (V+Vsz-128 == 1023) Vsz ++;
@@ -43,16 +43,16 @@ void main(void)
 		(float(bitfieldExtract(position.y,  0, 16)) - ORIGINVTX) * BASEVTX
 	);
 
-	/* 2nd and 3rd vertex are relative to 1st (saves 2 bits per coord, 6 in total) */
+	/* slightly different from blocks.vsh : need more precision for V2 and V3 */
 	vertex2 = vec3(
-		float(bitfieldExtract(position.y, 16, 14)) * BASEVTX - MIDVTX + vertex1.x,
-		float(bitfieldExtract(position.z,  0, 14)) * BASEVTX - MIDVTX + vertex1.y,
-		float(bitfieldExtract(position.z, 14, 14)) * BASEVTX - MIDVTX + vertex1.z
+		(float(bitfieldExtract(position.y, 16, 16)) - ORIGINVTX) * BASEVTX,
+		(float(bitfieldExtract(position.z,  0, 16)) - ORIGINVTX) * BASEVTX,
+		(float(bitfieldExtract(position.z, 16, 16)) - ORIGINVTX) * BASEVTX
 	);
 	vertex3 = vec3(
-		float(bitfieldExtract(position.w,  0, 14)) * BASEVTX - MIDVTX + vertex1.x,
-		float(bitfieldExtract(position.w, 14, 14)) * BASEVTX - MIDVTX + vertex1.y,
-		float(bitfieldExtract(info.x,      0, 14)) * BASEVTX - MIDVTX + vertex1.z
+		(float(bitfieldExtract(position.w,  0, 16)) - ORIGINVTX) * BASEVTX,
+		(float(bitfieldExtract(position.w, 16, 16)) - ORIGINVTX) * BASEVTX,
+		(float(bitfieldExtract(info.x,      0, 16)) - ORIGINVTX) * BASEVTX
 	);
 
 	texCoord = vec4(

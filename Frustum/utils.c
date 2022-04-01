@@ -70,7 +70,7 @@ void matMultByVec(vec4 res, mat4 A, vec4 B)
 
 /*
  * taken from glm library: convert a matrix intended for vertex so that it can be applied to a vector
- * (has to ignore translation). Not: normalization will still be required if used on a normal.
+ * (has to ignore translation). Note: normalization will still be required if used on a normal.
  */
 void matInverseTranspose(mat4 res, mat4 m)
 {
@@ -442,7 +442,7 @@ static void polyPathAdd(PolyPath path, int value)
 	int max = (nb + 127) & ~127;
 	if (nb + 1 > max)
 	{
-		int max = (nb + 128) & ~127;
+		max = (nb + 128) & ~127;
 		path->coords = realloc(path->coords, max * sizeof *path->coords);
 	}
 	DATA16 coord = path->coords + path->count;

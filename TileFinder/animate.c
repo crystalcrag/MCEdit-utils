@@ -40,6 +40,12 @@ static int animPaintGraph(SIT_Widget w, APTR cd, APTR ud)
 }
 #undef MARGIN
 
+static int animAddPoint(SIT_Widget w, APTR cd, APTR ud)
+{
+	//
+	return 1;
+}
+
 void animInit(SIT_Widget parent)
 {
 	animate.graph   = SIT_GetById(parent, "graph");
@@ -49,6 +55,7 @@ void animInit(SIT_Widget parent)
 	animate.time    = SIT_GetById(parent, "time");
 
 	SIT_AddCallback(animate.graph, SITE_OnPaint, animPaintGraph, NULL);
+	SIT_AddCallback(SIT_GetById(parent, "addpt"), SITE_OnActivate, animAddPoint, NULL);
 
 	int i;
 	for (i = 0; i < DIM(params); i ++)
@@ -64,7 +71,7 @@ void animShow(void)
 	if (selected < 0)
 		SIT_SetValues(animate.applyTo, SIT_SelectedIndex, 0, NULL), selected = 0;
 
-	Block box = blockGetNth(selected);
+	Block box = animate.current = blockGetNth(selected);
 
 	for (i = 0; i < DIM(params); i ++)
 	{
@@ -74,7 +81,7 @@ void animShow(void)
 	}
 }
 
-void animSynBox(Block box, int add)
+void animSyncBox(Block box, int add)
 {
 	SIT_ListInsertItem(animate.applyTo, -1, box, box->name);
 }
