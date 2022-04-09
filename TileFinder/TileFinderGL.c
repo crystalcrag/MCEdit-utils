@@ -153,6 +153,8 @@ int renderInitStatic(void)
 	render.uniformFaces  = glGetUniformLocation(render.shaderBlock, "stencilBuffer");
 	render.uniformActive = glGetUniformLocation(render.shaderBlock, "showActive");
 	render.uniformMVPB   = glGetUniformLocation(render.shaderBlock, "MVP");
+	render.uniformTexW   = glGetUniformLocation(render.shaderBlock, "texW");
+	render.uniformTexH   = glGetUniformLocation(render.shaderBlock, "texH");
 	render.uniformMVPS   = glGetUniformLocation(render.shaderSelect, "MVP");
 	render.uniformSide   = glGetUniformLocation(render.shaderSelect, "backSide");
 	render.rotation[2]   = 4; /* distance from objects */
@@ -163,9 +165,9 @@ int renderInitStatic(void)
 	return 1;
 }
 
-int renderSetTexture(STRPTR path)
+int renderSetTexture(STRPTR path, int texId)
 {
-	int texId, w, h, bpp, format, cspace;
+	int w, h, bpp, format, cspace;
 	DATA8 data;
 
 	data = stbi_load(path, &w, &h, &bpp, 0);
@@ -178,7 +180,7 @@ int renderSetTexture(STRPTR path)
 	if (w != 512)
 	{
 		/* make the image 512x512 */
-		DATA8 resize = calloc(512 * bpp, 512);
+		DATA8 resize = calloc(512 * bpp, h);
 		DATA8 s, d;
 		int   i = h;
 		if (h > 512) h = 512;
@@ -188,7 +190,7 @@ int renderSetTexture(STRPTR path)
 		free(data);
 		data = resize;
 	}
-	if (h > 512) h = 512;
+	if (h > 1024) h = 1024;
 
 	switch (bpp) {
 	case 1: format = GL_RED; cspace = GL_RED; break;
@@ -198,7 +200,8 @@ int renderSetTexture(STRPTR path)
 	default: return 0; /* should not happen */
 	}
 
-	glGenTextures(1, &texId);
+	if (texId == 0)
+		glGenTextures(1, &texId);
 	glBindTexture(GL_TEXTURE_2D, texId);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
@@ -207,6 +210,10 @@ int renderSetTexture(STRPTR path)
 	glTexImage2D(GL_TEXTURE_2D, 0, format, w, h, 0, cspace, GL_UNSIGNED_BYTE, data);
 	glGenerateMipmap(GL_TEXTURE_2D);
 	free(data);
+
+	float param;
+	param = w; glProgramUniform1fv(render.shaderBlock, render.uniformTexW, 1, &param);
+	param = h; glProgramUniform1fv(render.shaderBlock, render.uniformTexH, 1, &param);
 
 	return render.texId = texId;
 }
@@ -320,7 +327,7 @@ int renderRotateView(SIT_Widget w, APTR cd, APTR ud)
 
 Block boxGetCurrent(void);
 
-/* biome chekcbox: modulate gray with biome color */
+/* biome checkbox: modulate gray with biome color */
 int renderSetFeature(SIT_Widget w, APTR cd, APTR ud)
 {
 	int checked = 0;

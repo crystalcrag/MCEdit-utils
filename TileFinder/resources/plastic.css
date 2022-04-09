@@ -36,6 +36,9 @@ button {
 	text-align:       center;
 	outline:          0.2em solid #111
 }
+button.thin {
+	padding:          0.3em 0.3em;
+}
 button:active {
 	background:       selback;
 	border:           0.1em solid #113;
@@ -60,6 +63,11 @@ editbox {
 	box-shadow:       0 0 3px #222 inset;
 	border:           0.1em solid #888;
 	border-color:     #111 #111 #888 #888
+}
+editbox.plain {
+	box-shadow:       none;
+	border:           0;
+	padding:          0.1em 0.1em
 }
 editbox:disabled {
 	background-color: #737664;

@@ -67,6 +67,9 @@ void matLookAt(mat4 res, vec4 eye, vec4 center, vec4 up);
 
 void matPrint(mat4 A);
 
+char * toJS(char * in);
+char * fromJS(char ** in);
+
 /* vector operation (res can point to A or B) */
 float vecLength(vec4 A);
 void  vecNormalize(vec4 res, vec4 A);

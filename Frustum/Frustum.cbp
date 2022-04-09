@@ -32,7 +32,7 @@
 		<Compiler>
 			<Add option="-Wshadow" />
 			<Add option="-Wall" />
-			<Add directory=".\include" />
+			<Add directory="..\includes" />
 			<Add directory="..\external\includes" />
 		</Compiler>
 		<Linker>

@@ -7,7 +7,8 @@
 #include <malloc.h>
 #include <string.h>
 #include <math.h>
-#include "Utils.h"
+#include "UtilityLibLite.h"
+#include "utils.h"
 
 /*
  * classical matrix related operations
@@ -250,6 +251,72 @@ void matPrint(mat4 A)
 		if ((i & 3) == 3) fputc('\n', stderr);
 	}
 	fputs("];\n", stderr);
+}
+
+/*
+ * parse/format JS string
+ */
+char * toJS(char * in)
+{
+	static char out[128];
+	char * p;
+
+	for (p = out + 1, out[0] = '\"'; *in; in ++)
+	{
+		if (*in == '\"') *p ++ = '\\';
+		*p ++ = *in;
+	}
+	p[0] = '\"';
+	p[1] = 0;
+
+	return out;
+}
+
+char * fromJS(char ** io)
+{
+	DATA8 s, d, str = *io;
+	uint8_t eol = *str;
+
+	if (eol == '\'' || eol == '\"')
+		str ++;
+	else
+		eol = 0;
+	for (s = d = str; *s && *s != eol; s ++, d ++)
+	{
+		if (*s == '\\')
+		{
+			int i, cp;
+			switch (s[1]) {
+			case '\"': *d = '\"'; break;
+			case '\\': *d = '\\'; break;
+			case '/':  *d = '/';  break;
+			case 'b':  *d = '\b'; break;
+			case 'f':  *d = '\f'; break;
+			case 'n':  *d = '\n'; break;
+			case 'r':  *d = '\r'; break;
+			case 't':  *d = '\t'; break;
+			case 'u':
+				/* unicode code point */
+				for (i = cp = 0, s += 2; i < 4; i ++, s ++)
+				{
+					uint8_t chr = *s;
+					if ('A' <= chr && chr <= 'Z') chr = 10 + (chr - 'A'); else
+					if ('a' <= chr && chr <= 'z') chr = 10 + (chr - 'a'); else
+					if ('0' <= chr && chr <= '9') chr -= '0'; else break;
+					cp = (cp << 4) | chr;
+				}
+				d += CP2UTF8(d, cp) - 1;
+				s --;
+				break;
+			default: /* invalid seq, but copy as is */
+				*d = *s;
+			}
+		}
+		else *d = *s;
+	}
+	*io = *s ? s + 1 : s;
+	d[0] = 0;
+	return str;
 }
 
 /*

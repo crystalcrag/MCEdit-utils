@@ -11,7 +11,7 @@
 
 void   renderCube(void);
 int    renderInitStatic(void);
-int    renderSetTexture(STRPTR path);
+int    renderSetTexture(STRPTR path, int useTexId);
 int    renderGetVPSize(SIT_Widget, APTR, APTR);
 int    renderRotateView(SIT_Widget, APTR, APTR);
 int    renderResetView(SIT_Widget, APTR, APTR);
@@ -35,6 +35,7 @@ struct Render_t
 	int  uniformMVPB, uniformMVPS;
 	int  uniformBiome, uniformSide;
 	int  uniformFaces, uniformActive;
+	int  uniformTexW, uniformTexH;
 	int  vertexCount;
 	int  texId;
 	int  vpSize[4];

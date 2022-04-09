@@ -72,6 +72,14 @@ static int SDLMtoSIT(int mod)
 	return ret;
 }
 
+static void addTextureBank(STRPTR path)
+{
+	StripCRLF(path);
+	TexBank bank = malloc(sizeof *bank + strlen(path));
+	strcpy(bank->path, path);
+	ListAddTail(&prefs.banks, &bank->node);
+}
+
 static void readPrefs(STRPTR path)
 {
 	FILE * in = fopen("Block2.txt", "rb");
@@ -85,13 +93,14 @@ static void readPrefs(STRPTR path)
 
 			STRPTR sep = strchr(line, '=');
 			if (! sep) continue; *sep ++ = 0;
-			switch (FindInList("DetailMode,ShowBBox,WndWidth,WndHeight,LastTex,Block", line, 0)) {
+			switch (FindInList("DetailMode,ShowBBox,WndWidth,WndHeight,LastTex,Block,TexBank", line, 0)) {
 			case 0: prefs.detail = atoi(sep); break;
 			case 1: prefs.bbox   = atoi(sep); break;
 			case 2: prefs.width  = atoi(sep); break;
 			case 3: prefs.height = atoi(sep); break;
 			case 4: CopyString(prefs.lastTex, sep, sizeof prefs.lastTex); StripCRLF(prefs.lastTex); break;
-			case 5: blockParseFormat(sep);
+			case 5: blockParseFormat(sep); break;
+			case 6: addTextureBank(sep);
 			}
 		}
 		fclose(in);

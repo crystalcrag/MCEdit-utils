@@ -559,15 +559,7 @@ static void mapCullCave(ChunkData cur, vec4 camera)
 			cur->comingFrom = side;
 			return;
 		}
-		#if 0
-		if (neighbor->comingFrom == 0 && (chunk->outflags[neighbor->Y>>4] & VISIBLE))
-		{
-			//fprintf(stderr, "should cull cave for %d, %d first (from %d, %d)\n", chunk->X >> 4, neighbor->Y >> 4,
-			//	X >> 4, cur->Y >> 4);
-			mapCullCave(neighbor, camera);
-		}
-		#endif
-		if (neighbor->comingFrom > 0 /* can be visited */ && neighbor->slot == 0 /* non-fake chunk */)
+		if (neighbor->comingFrom > 0 /* can be visited */)
 		{
 			if (neighbor->comingFrom == 127)
 			{
@@ -704,7 +696,6 @@ void mapViewFrustum(Map map, vec4 camera)
 	cur->visible = NULL;
 	cur->comingFrom = 127;
 	memset(chunk->outflags, UNVISITED, sizeof chunk->outflags);
-	chunk->cdIndex = frame;
 	chunk->outflags[cur->Y>>4] |= VISIBLE;
 	frame = ++ map->frame;
 	chunk->chunkFrame = frame;
@@ -717,7 +708,6 @@ void mapViewFrustum(Map map, vec4 camera)
 		/* 1st pass: check if chunk corners are in frustum */
 		chunk     = cur->chunk;
 		center[1] = cur->Y >> 4;
-
 		neighbors = mapGetOutFlags(map, cur, outflags);
 
 		//fprintf(stderr, "chunk %d, %d: slot: %d\n", cur->chunk->X >> 4, cur->Y >> 4, cur->slot);

@@ -14,13 +14,15 @@ struct MainCtrl_t
 	NVGcontext * nvgCtx;
 	SIT_Widget list, app, full, manual, lab90;
 	SIT_Widget tex, texUV, coords, model;
-	SIT_Widget faces[7], radio[7], subdet;
+	SIT_Widget faces[8], radio[8], subdet;
 	SIT_Widget center[3], centerCB, anim;
 	SIT_Widget active;
 	mat4       rotation;
 	int        faceEdit, lastFaceSet;
 	int        texUVMapId, nvgImgId;
 	int        showActive, detailMode;
+	int        shiftDX, shiftDY;
+	uint8_t    cancelEdit;
 };
 
 typedef struct ViewImage_t *    ViewImage;
@@ -51,6 +53,10 @@ enum
 	MENU_LOCATETEX,
 	MENU_PREVBOX,
 	MENU_NEXTBOX,
+	MENU_PREVSIDE,
+	MENU_NEXTSIDE,
+	MENU_DUPBOX,
+	MENU_RENAME,
 	MENU_ANIMATE,
 	MENU_ABOUT
 };

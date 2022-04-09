@@ -9,6 +9,8 @@ layout (location=0) in uvec4 position;
 layout (location=1) in uvec3 info;
 
 uniform mat4 MVP;
+uniform float texW;
+uniform float texH;
 
 /* GL_POINT needs to be converted to quad */
 out vec3 vertex1;
@@ -21,8 +23,6 @@ out uint normFlags;
 #define ORIGINVTX      15360
 #define BASEVTX        0.00048828125
 #define MIDVTX         4
-#define TEX_COORD_X    (1/512.)
-#define TEX_COORD_Y    (1/512.)
 
 void main(void)
 {
@@ -30,7 +30,7 @@ void main(void)
 	uint Usz = bitfieldExtract(info.y, 16, 8);
 	uint Vsz = bitfieldExtract(info.y, 24, 8);
 	uint U   = bitfieldExtract(info.x, 16, 9);
-	uint V   = bitfieldExtract(info.x, 25, 7) | (bitfieldExtract(info.y, 0, 2) << 7);
+	uint V   = bitfieldExtract(info.x, 25, 7) | (bitfieldExtract(info.y, 0, 3) << 7);
 
 	/* only 10 and 9 bits of precision, ideally we woud need 11 and 10, but that trick does the job nicely */
 	if (V+Vsz-128 == 1023) Vsz ++;
@@ -56,8 +56,8 @@ void main(void)
 	);
 
 	texCoord = vec4(
-		float(U) * TEX_COORD_X, float(U + Usz - 128) * TEX_COORD_X,
-		float(V) * TEX_COORD_Y, float(V + Vsz - 128) * TEX_COORD_Y
+		float(U) / texW, float(U + Usz - 128) / texW,
+		float(V) / texH, float(V + Vsz - 128) / texH
 	);
 	faceId = info.z;
 	normFlags = bitfieldExtract(info.y, 9, 7);

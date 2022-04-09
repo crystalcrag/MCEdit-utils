@@ -21,7 +21,7 @@ static STRPTR rot90Names[] = {
 	"", "90\xC2\xB0", "180\xC2\xB0", "270\xC2\xB0"
 };
 
-static int factors[] = {100, 200, 300, 400, 800, 1100, 1600, 2300, 3200};
+static int factors[] = {100, 200, 300, 400, 800, 1100, 1600, 2300, 3200, 4000};
 
 extern STRPTR detailTexNames[];
 
@@ -58,7 +58,7 @@ static void viewZoomInOut(ViewImage view, double fact, int mx, int my, Bool rela
 	}
 
 	if (view->zoomFact <= 0) view->zoomFact = 1;
-	if (view->zoomFact > 32) view->zoomFact = 32;
+	if (view->zoomFact > 40) view->zoomFact = 40;
 
 	/* no point in having an image smaller than 64x64px */
 	fact = view->zoomFact;
@@ -86,6 +86,14 @@ static void viewZoomInOut(ViewImage view, double fact, int mx, int my, Bool rela
 		rect[1] = my - dy * rect[3] / oldRect[3];
 	}
 	SIT_ForceRefresh();
+}
+
+static void viewFullScreen(ViewImage view)
+{
+	if (view->dstWidth * view->imgHeight > view->dstHeight * view->imgWidth)
+		viewZoomInOut(view, view->dstHeight / (double) view->imgHeight, -1, -1, False);
+	else
+		viewZoomInOut(view, view->dstWidth / (double) view->imgWidth, -1, -1, False);
 }
 
 static int viewHandleMouse(SIT_Widget w, APTR cd, APTR ud)
@@ -269,10 +277,10 @@ static int viewHandleKbd(SIT_Widget w, APTR cd, APTR ud)
 	ViewImage view = ud;
 	SIT_OnKey * msg = cd;
 	switch (msg->utf8[0]) {
-	case 'f': case 'F': viewZoomInOut(view, view->dstWidth / (double) view->imgWidth, -1, -1, False); break;
-	case 'd': case 'D': viewZoomInOut(view, 1, -1, -1, False); break;
+	case 'f': case 'F': viewFullScreen(view); return 1;
+	case 'd': case 'D': viewZoomInOut(view, 1, -1, -1, False); return 1;
 	}
-	return 1;
+	return 0;
 }
 
 
@@ -342,25 +350,35 @@ static int viewHandleResize(SIT_Widget w, APTR cd, APTR ud)
 	view->dstWidth  = rect[0];
 	view->dstHeight = rect[1];
 	if (! view->zoomChanged)
-	{
-		viewZoomInOut(view, view->dstWidth / (double) view->imgWidth, -1, -1, False);
-	}
+		viewFullScreen(view);
 	return 1;
+}
+
+static void viewSetImage(SIT_Widget canvas, int imgId)
+{
+	ViewImage view;
+	SIT_GetValues(canvas, SIT_UserData, &view, NULL);
+	view->imgId = imgId;
+	nvgImageSize(finder.nvgCtx, imgId, &view->imgWidth, &view->imgHeight);
+	view->rect[2] = view->imgWidth;
+	view->rect[3] = view->imgHeight;
+
+	prefs.defU = view->imgWidth  / TILE_SIZE - 1;
+	prefs.defV = view->imgHeight / TILE_SIZE - 1;
+
+	if (view->dstWidth > 0)
+	{
+		if (! view->zoomChanged)
+			viewFullScreen(view);
+	}
+	else view->zoomFact = 1, view->zoomChanged = 0;
 }
 
 static void viewInit(SIT_Widget canvas, int textureId)
 {
 	ViewImage view;
 	SIT_GetValues(canvas, SIT_UserData, &view, NULL);
-	view->imgId = textureId;
-	nvgImageSize(finder.nvgCtx, textureId, &view->imgWidth, &view->imgHeight);
-	view->rect[2] = view->imgWidth;
-	view->rect[3] = view->imgHeight;
-	view->zoomFact = 1;
-	view->zoomChanged = 0;
-
-	prefs.defU = view->imgWidth  / TILE_SIZE - 1;
-	prefs.defV = view->imgHeight / TILE_SIZE - 1;
+	viewSetImage(canvas, textureId);
 
 	SIT_AddCallback(canvas, SITE_OnClickMove,  viewHandleMouse,  view);
 	SIT_AddCallback(canvas, SITE_OnPaint,      viewHandlePaint,  view);
@@ -485,7 +503,7 @@ static int boxDel(SIT_Widget w, APTR cd, APTR ud)
 	SIT_GetValues(finder.list, SIT_SelectedIndex, &index, NULL);
 	if (index >= 0)
 	{
-		Block b, next;
+		Block b, next, select;
 		SIT_GetValues(finder.list, SIT_RowTag(index), &b, NULL);
 		SIT_ListDeleteRow(finder.list, index);
 		if (b->ref)
@@ -505,7 +523,9 @@ static int boxDel(SIT_Widget w, APTR cd, APTR ud)
 				}
 			}
 		}
-		next = (Block) b->node.ln_Next;
+		next = select = (Block) b->node.ln_Next;
+		if (select == NULL)
+			select = (Block) b->node.ln_Prev;
 		index = blockRemove(b);
 
 		while (next)
@@ -514,6 +534,12 @@ static int boxDel(SIT_Widget w, APTR cd, APTR ud)
 			index ++;
 			NEXT(next);
 		}
+		if (select)
+		{
+			for (index = 0; select; index ++, PREV(select));
+			SIT_SetValues(finder.list, SIT_SelectedIndex, index, NULL);
+		}
+
 		blockGenVertexBuffer();
 	}
 	return 1;
@@ -538,6 +564,25 @@ static int boxAskDelAll(SIT_Widget w, APTR cd, APTR ud)
 {
 	uiYesNo(w, "Are you sure you want to delete everything?", boxDelAll, True);
 	return 1;
+}
+
+/* duplicate current box if any */
+static void boxDup(void)
+{
+	Block b = boxGetCurrent();
+
+	if (b)
+	{
+		Block dup = blockAddDefaultBox();
+		memcpy(dup->name, b->name, offsetp(Block, faces) - offsetp(Block, name));
+		dup->faces = b->faces;
+		dup->rotateCenter = b->rotateCenter;
+		dup->custName = b->custName;
+		boxAddOrUpdateList(dup, True);
+		blockGenVertexBuffer();
+		SIT_SetValues(finder.list, SIT_RowSel(prefs.nbBlocks-1), True, NULL);
+		SIT_ForceRefresh();
+	}
 }
 
 /* update <tex> text field */
@@ -637,7 +682,7 @@ static int boxSelect(SIT_Widget w, APTR cd, APTR ud)
 		viewShowTexCoord(b, id);
 		SIT_SetValues(finder.radio[id], SIT_CheckState, True, NULL);
 	}
-	for (id = 0, faces = b->faces; id <= 6; id ++, faces >>= 1)
+	for (id = 0, faces = b->faces; id <= 7; id ++, faces >>= 1)
 		SIT_SetValues(finder.faces[id], SIT_CheckState, faces & 1, NULL);
 
 	return 1;
@@ -650,6 +695,109 @@ static void boxSelectRelative(int dir)
 	cur += dir;
 	if (0 <= cur && cur < count)
 		SIT_SetValues(finder.list, SIT_SelectedIndex, cur, NULL);
+}
+
+/* SITE_OnBlur */
+static int boxFinishEdit(SIT_Widget w, APTR cd, APTR ud)
+{
+	if (! finder.cancelEdit)
+	{
+		Block b = ud;
+		STRPTR name;
+		int nth;
+
+		for (nth = 0, b = ud; b; PREV(b), nth ++);
+		b = ud;
+
+		SIT_GetValues(w, SIT_Title, &name, NULL);
+		if (name[0])
+		{
+			b->custName = 1;
+			CopyString(b->name, name, sizeof b->name);
+		}
+		else
+		{
+			b->custName = 0;
+			sprintf(b->name, "Box %d", nth);
+		}
+		SIT_ListSetCell(finder.list, nth-1, 0, DontChangePtr, DontChange, b->name);
+		/* we will get an OnBlur once removed */
+		finder.cancelEdit = 1;
+	}
+	SIT_RemoveWidget(w);
+	return 1;
+}
+
+/* OnRawKey */
+static int boxAcceptEdit(SIT_Widget w, APTR cd, APTR ud)
+{
+	SIT_OnKey * msg = cd;
+	if (msg->keycode == SITK_Return)
+	{
+		finder.cancelEdit = 0;
+		boxFinishEdit(w, NULL, ud);
+		return 1;
+	}
+	else if (msg->keycode == SITK_Escape)
+	{
+		/* remove widgets will cause an OnBlur event */
+		finder.cancelEdit = 1;
+		SIT_RemoveWidget(w);
+		return 1;
+	}
+	return 0;
+}
+
+/* SITE_OnClick on list */
+static int boxSetName(SIT_Widget w, APTR cd, APTR ud)
+{
+	SIT_Widget parent;
+	float rect[4];
+	int   click;
+	Block b;
+
+	parent = NULL;
+	b = NULL;
+	if (ud)
+	{
+		/* rename currently selected item */
+		SIT_GetValues(ud, SIT_SelectedIndex, &click, NULL);
+		if (click >= 0)
+		{
+			SIT_GetValues(ud, SIT_RowTag(click), &b, NULL);
+			parent = SIT_ListGetItemRect(ud, rect, click, 0);
+		}
+	}
+	else /* edit item under mouse cursor */
+	{
+		SIT_OnMouse * msg = cd;
+		if (msg->state == SITOM_ButtonPressed && msg->button == SITOM_ButtonRight)
+		{
+			parent = w;
+			click = SIT_ListGetItemOver(w, rect, msg->x, msg->y, &parent);
+			b = blockGetNth(click >> 8);
+		}
+	}
+
+	if (parent)
+	{
+		finder.cancelEdit = 0;
+		w = SIT_CreateWidget("editname.plain", SIT_EDITBOX, parent,
+			/* cannot edit wp->name directly: we want this to be cancellable */
+			SIT_Title,      b->name,
+			SIT_EditLength, sizeof b->name,
+			SIT_X,          (int) rect[0],
+			SIT_Y,          (int) rect[1],
+			SIT_Width,      (int) (rect[2] - rect[0] - 4),
+			SIT_Height,     (int) (rect[3] - rect[1] - 4),
+			NULL
+		);
+		SIT_SetFocus(w);
+		SIT_AddCallback(w, SITE_OnBlur,   boxFinishEdit, b);
+		SIT_AddCallback(w, SITE_OnRawKey, boxAcceptEdit, b);
+		return 1;
+	}
+	return 0;
 }
 
 /*
@@ -813,7 +961,7 @@ static void uiEditNextFace(int dir)
 	}
 	if (0 <= id && id < 6)
 	{
-		finder.faceEdit = id;
+		finder.faceEdit = finder.lastFaceSet = id;
 		viewShowTexCoord(b, id);
 		SIT_SetValues(finder.radio[id], SIT_CheckState, True, NULL);
 	}
@@ -851,6 +999,7 @@ void uiSetFaceTexCoord(int * texCoords)
 		blockSetFaceTexCoord(b, finder.lastFaceSet, texCoords);
 		blockGenVertexBuffer();
 		boxUpdateTexCoord();
+		SIT_ForceRefresh();
 	}
 }
 
@@ -877,14 +1026,19 @@ static void uiToggleAnim(SIT_Widget w)
 /* SITE_OnFinalize */
 static int uiSaveChanges(SIT_Widget w, APTR cd, APTR ud)
 {
-	FILE * out = fopen("Block2.txt", "wb");
-	Block  b = blockGetNth(0);
-	int    i, j;
+	FILE *  out = fopen("Block2.txt", "wb");
+	Block   b = blockGetNth(0);
+	TexBank banks;
+	int     i, j;
 	fprintf(out, "# Settings\n");
 	fprintf(out, "WndWidth=%d\n", prefs.width);
 	fprintf(out, "WndHeight=%d\n", prefs.height);
 	fprintf(out, "DetailMode=%d\n", prefs.detail);
 	fprintf(out, "ShowBBox=%d\n", prefs.bbox);
+
+	for (banks = HEAD(prefs.banks); banks; NEXT(banks))
+		fprintf(out, "TexBank=%s\n", banks->path);
+
 	fprintf(out, "LastTex=%s\n", prefs.lastTex);
 	for (i = 0; i < prefs.nbBlocks; NEXT(b))
 	{
@@ -893,7 +1047,8 @@ static int uiSaveChanges(SIT_Widget w, APTR cd, APTR ud)
 		i ++;
 		// if (! detail && b->detailTex) faces |= b->detailFaces<<11;
 		fprintf(out, "Block=FACES,%d,%s", b->faces & 63, detailTexNames[b->detailTex]);
-		if (b->faces & BHDR_INVERTNORM) fprintf(out, ",INVERT");
+		if (b->faces & BHDR_INVERTNORM) fprintf(out, ",INVERT"); else
+		if (b->faces & BHDR_DUALSIDE)   fprintf(out, ",DUALSIDE");
 		if (b->node.ln_Prev == NULL && prefs.rot90 > 0) fprintf(out, ",ROT90,%d", prefs.rot90 * 90);
 		fprintf(out, ",SIZE,%g,%g,%g", b->size[0], b->size[1], b->size[2]);
 		if (b->trans[0] != 0 || b->trans[1] != 0 || b->trans[2] != 0)
@@ -903,9 +1058,11 @@ static int uiSaveChanges(SIT_Widget w, APTR cd, APTR ud)
 		if (b->cascade[0] != 0 || b->cascade[1] != 0 || b->cascade[2] != 0)
 			fprintf(out, ",ROTCAS,%g,%g,%g", b->cascade[0], b->cascade[1], b->cascade[2]);
 		if (b->rotateCenter == 0)
-			fprintf(out, ",REF,%g,%g,%g,", b->rotateFrom[0], b->rotateFrom[1], b->rotateFrom[2]);
+			fprintf(out, ",REF,%g,%g,%g", b->rotateFrom[0], b->rotateFrom[1], b->rotateFrom[2]);
 		if (b->incFaceId)
 			fprintf(out, ",INC_FACEID");
+		if (b->custName)
+			fprintf(out, ",NAME,%s", toJS(b->name));
 
 		switch (b->detailTex) {
 		case TEX_DETAIL:
@@ -1050,8 +1207,20 @@ static int uiHandleCommands(SIT_Widget w, APTR cd, APTR ud)
 	case MENU_NEXTBOX:
 		boxSelectRelative(1);
 		break;
+	case MENU_PREVSIDE:
+		uiEditNextFace(-1);
+		break;
+	case MENU_NEXTSIDE:
+		uiEditNextFace(1);
+		break;
+	case MENU_DUPBOX:
+		boxDup();
+		break;
 	case MENU_ANIMATE:
 		uiToggleAnim(w);
+		break;
+	case MENU_RENAME:
+		boxSetName(finder.list, NULL, finder.list);
 		break;
 	case MENU_ABOUT:
 		uiYesNo(w,
@@ -1087,13 +1256,136 @@ static int uiActiveCenter(SIT_Widget w, APTR cd, APTR ud)
 	return 1;
 }
 
+/* will shift all texture coordinates of everything block */
+static int uiShiftTex(SIT_Widget w, APTR cd, APTR ud)
+{
+	int dx = finder.shiftDX;
+	int dy = finder.shiftDY;
+
+	Block b;
+	for (b = blockGetNth(0); b; NEXT(b))
+	{
+		DATA16 tex, end;
+		for (tex = b->texUV, end = EOT(b->texUV); tex < end; tex += 2)
+			tex[0] += dx, tex[1] += dy;
+	}
+
+	boxUpdateTexCoord();
+	blockGenVertexBuffer();
+	SIT_CloseDialog(w);
+
+	return 1;
+}
+
+static int uiShowShift(SIT_Widget w, APTR cd, APTR ud)
+{
+	static SIT_Accel accels[] = {
+		{SITK_FlagCapture + SITK_Escape, SITE_OnClose},
+		{0}
+	};
+
+	SIT_Widget ask = SIT_CreateWidget("ask.bg", SIT_DIALOG, w,
+		SIT_DialogStyles, SITV_Plain | SITV_Modal | SITV_Movable,
+		SIT_Style,        "padding: 1em",
+		SIT_AccelTable,   accels,
+		NULL
+	);
+
+	finder.shiftDX = 0;
+	finder.shiftDY = 0;
+	SIT_Widget max = NULL;
+	SIT_CreateWidgets(ask,
+		"<label name=msg.alt title=", "Shift all texture coordinates by:", ">"
+		"<editbox name=dx buddyLabel=", "Horizontal:", &max, "top=WIDGET,msg,0.5em editType=", SITV_Integer, "curValue=", &finder.shiftDX, ">"
+		"<label name=unit1.alt title=px right=FORM top=MIDDLE,dx>"
+		"<editbox name=dy buddyLabel=", "Vertical:", &max, "top=WIDGET,dx,0.5em editType=", SITV_Integer, "curValue=", &finder.shiftDY, ">"
+		"<label name=unit2.alt title=px right=FORM top=MIDDLE,dy>"
+		"<button name=ko.danger title=Cancel right=FORM top=WIDGET,dy,0.5em buttonType=", SITV_CancelButton, ">"
+		"<button name=ok title=Ok right=WIDGET,ko,0.5em top=OPPOSITE,ko nextCtrl=ko buttonType=", SITV_DefaultButton, ">"
+	);
+	SIT_SetAttributes(ask,
+		"<dx right=WIDGET,unit1,0.5em><dy right=WIDGET,unit2,0.5em>"
+	);
+	SIT_SetFocus(SIT_GetById(ask, "dx"));
+	SIT_AddCallback(SIT_GetById(ask, "ok"), SITE_OnActivate, uiShiftTex, NULL);
+	SIT_ManageWidget(ask);
+	return 1;
+}
+
+/*
+ * switch between texture files
+ */
+static int uiSetTexture(SIT_Widget w, APTR cd, APTR ud)
+{
+	TexBank bank = cd;
+	if (strcasecmp(bank->path, prefs.lastTex))
+	{
+		CopyString(prefs.lastTex, bank->path, sizeof prefs.lastTex);
+		renderSetTexture(bank->path, finder.texUVMapId);
+		nvgDeleteImage(finder.nvgCtx, finder.nvgImgId);
+		finder.nvgImgId = nvgCreateImage(finder.nvgCtx, (APTR) finder.texUVMapId, NVG_IMAGE_NEAREST | NVG_IMAGE_GLTEX);
+		viewSetImage(finder.tex, finder.nvgImgId);
+	}
+	SIT_CloseDialog(w);
+	return 1;
+}
+
+static int uiUseTexture(SIT_Widget w, APTR cd, APTR ud)
+{
+	int nth;
+	SIT_GetValues(ud, SIT_SelectedIndex, &nth, NULL);
+	if (nth >= 0)
+	{
+		TexBank bank;
+		SIT_GetValues(ud, SIT_RowTag(nth), &bank, NULL);
+		uiSetTexture(ud, bank, NULL);
+	}
+	return 1;
+}
+
+static int uiShowBanks(SIT_Widget w, APTR cd, APTR ud)
+{
+	static SIT_Accel accels[] = {
+		{SITK_FlagCapture + SITK_Escape, SITE_OnClose},
+		{0}
+	};
+
+	SIT_Widget ask = SIT_CreateWidget("ask.bg", SIT_DIALOG, w,
+		SIT_DialogStyles, SITV_Plain | SITV_Modal | SITV_Movable,
+		SIT_Style,        "padding: 1em",
+		SIT_AccelTable,   accels,
+		NULL
+	);
+
+	SIT_CreateWidgets(ask,
+		"<label name=msg.alt title=", "Select the file to use for texturing:", ">"
+		"<listbox name=texbank left=FORM right=FORM height=7em top=WIDGET,msg,0.5em listBoxFlags=", SITV_SelectAlways, ">"
+		"<button name=ko.danger title=Cancel right=FORM top=WIDGET,texbank,0.5em buttonType=", SITV_CancelButton, ">"
+		"<button name=ok title=Select right=WIDGET,ko,0.5em top=OPPOSITE,ko nextCtrl=ko buttonType=", SITV_DefaultButton, ">"
+	);
+
+	SIT_Widget list = SIT_GetById(ask, "texbank");
+	TexBank bank;
+	for (bank = HEAD(prefs.banks); bank; NEXT(bank))
+	{
+		int item = SIT_ListInsertItem(list, -1, bank, bank->path);
+		if (strcasecmp(bank->path, prefs.lastTex) == 0)
+			SIT_SetValues(list, SIT_SelectedIndex, item, NULL);
+	}
+	SIT_AddCallback(list, SITE_OnActivate, uiSetTexture, NULL);
+	SIT_AddCallback(SIT_GetById(ask, "ok"), SITE_OnActivate, uiUseTexture, list);
+	SIT_ManageWidget(ask);
+	return 1;
+}
+
 static int uiShowHelp(SIT_Widget w, APTR cd, APTR ud)
 {
 	uiYesNo(w,
 		"Global shortcuts:<br>"
 		" &#x25cf; <key>F1</key>: reset 3d view.<br>"
-		" &#x25cf; <key>F2</key>: locate texture of curernt face.<br>"
+		" &#x25cf; <key>F2</key>: locate texture of current face.<br>"
 		" &#x25cf; <key>F3</key>: toggle 'Show active'.<br>"
+		" &#x25cf; <key>F4</key>: rename current box.<br>"
 		" &#x25cf; <key>Del</key>: clear texture of current box.<br>"
 		" &#x25cf; <key>Shift+Del</key>: clear all textures.<br>"
 		" &#x25cf; <key>Ctrl+C</key>: copy model into clipboard.<br>"
@@ -1101,7 +1393,8 @@ static int uiShowHelp(SIT_Widget w, APTR cd, APTR ud)
 		" &#x25cf; <key>R</key>: rotate texture of current face.<br>"
 		" &#x25cf; <key>M</key>: mirror texture.<br>"
 		" &#x25cf; <key>C</key>: copy texture onto next face.<br>"
-		" &#x25cf; <key>PgUp, PgDown</key>: select previous/next box.<br>"
+		" &#x25cf; <key>Up, Down</key>: select previous/next box.<br>"
+		" &#x25cf; <key>Left, Right</key>: select previous/next face.<br>"
 		"<br>"
 		"Texture view:<br>"
 		" &#x25cf; <key>LMB</key>: drag the view.<br>"
@@ -1111,7 +1404,7 @@ static int uiShowHelp(SIT_Widget w, APTR cd, APTR ud)
 		"<br>"
 		"3D view:<br>"
 		" &#x25cf; <key>LMB</key>: rotate model.<br>"
-		" &#x25cf; <key>RMB</key>: select face and box under the cursor.<br>"
+		" &#x25cf; <key>RMB</key>: select face and box under the mouse.<br>"
 		" &#x25cf; <key>Wheel</key>: zoom model in/out.<br>",
 		NULL, False
 	);
@@ -1126,7 +1419,6 @@ void uiCreate(SIT_Widget app)
 
 	static SIT_Accel accels[] = {
 		{SITK_FlagCapture + SITK_FlagAlt + SITK_F4, SITE_OnClose},
-		{SITK_FlagCapture + SITK_Escape,            SITE_OnClose},
 		{SITK_FlagShift + SITK_Delete, SITE_OnActivate, MENU_CLEARTEX, NULL, uiHandleCommands},
 		{SITK_F3,             SITE_OnActivate, 0, "active"},
 		{SITK_FlagCtrl + 'a', SITE_OnActivate, MENU_ABOUT,     NULL, uiHandleCommands},
@@ -1135,11 +1427,15 @@ void uiCreate(SIT_Widget app)
 		{SITK_Delete,         SITE_OnActivate, MENU_RESETTEX,  NULL, uiHandleCommands},
 		{SITK_F1,             SITE_OnActivate, MENU_RESETVIEW, NULL, uiHandleCommands},
 		{SITK_F2,             SITE_OnActivate, MENU_LOCATETEX, NULL, uiHandleCommands},
-		{SITK_PrevPage,       SITE_OnActivate, MENU_PREVBOX,   NULL, uiHandleCommands},
-		{SITK_NextPage,       SITE_OnActivate, MENU_NEXTBOX,   NULL, uiHandleCommands},
+		{SITK_F4,             SITE_OnActivate, MENU_RENAME,    NULL, uiHandleCommands},
+		{SITK_Up,             SITE_OnActivate, MENU_PREVBOX,   NULL, uiHandleCommands},
+		{SITK_Down,           SITE_OnActivate, MENU_NEXTBOX,   NULL, uiHandleCommands},
+		{SITK_Left,           SITE_OnActivate, MENU_PREVSIDE,  NULL, uiHandleCommands},
+		{SITK_Right,          SITE_OnActivate, MENU_NEXTSIDE,  NULL, uiHandleCommands},
 		{'r',                 SITE_OnActivate, MENU_ROT90TEX,  NULL, uiHandleCommands},
 		{'m',                 SITE_OnActivate, MENU_MIRRORTEX, NULL, uiHandleCommands},
 		{'c',                 SITE_OnActivate, MENU_COPYTEX,   NULL, uiHandleCommands},
+		{SITK_Escape,         SITE_OnClose},
 		{0}
 	};
 
@@ -1164,6 +1460,7 @@ void uiCreate(SIT_Widget app)
 			"<button name=active title='Show active' curValue=", &finder.showActive, "buttonType=", SITV_ToggleButton,
 			" left=WIDGET,reset,0.5em top=", SITV_AttachCenter, ">"
 			"<button name=anim title=Animate buttonType=", SITV_ToggleButton, "left=WIDGET,active,0.5em top=", SITV_AttachCenter, ">"
+			"<button name=bank.danger title='Tex bank' left=WIDGET,anim,0.5em top=", SITV_AttachCenter, "visible=", prefs.banks.lh_Head != NULL, ">"
 
 		"</canvas>"
 
@@ -1172,7 +1469,7 @@ void uiCreate(SIT_Widget app)
 			"<button name=addbox title='Add box'>"
 			"<button name=delbox.danger title=Del left=WIDGET,addbox,0.5em top=OPPOSITE,addbox>"
 			"<button name=delall.danger title='Del all' left=WIDGET,delbox,0.5em top=OPPOSITE,addbox>"
-			"<button name=clstex title='Clear tex' left=WIDGET,delall,0.5em top=OPPOSITE,addbox>"
+			"<button name=dupbox title='Dup' left=WIDGET,delall,0.5em top=OPPOSITE,addbox>"
 
 			"<listbox name=objects height=10em width=23em columnNames='Primitive\tSize\tPos' columnWidths='*\t*\t*'"
 			" listBoxFlags=", SITV_SelectAlways, "top=WIDGET,addbox,0.5em>"
@@ -1210,6 +1507,7 @@ void uiCreate(SIT_Widget app)
 			"<button name=faceT title='T' buttonType=", SITV_ToggleButton, "checkState=1 top=OPPOSITE,faceS left=WIDGET,faceW,0.4em>"
 			"<button name=faceB title='B' buttonType=", SITV_ToggleButton, "checkState=1 top=OPPOSITE,faceS left=WIDGET,faceT,0.4em>"
 			"<button name=faceI title='I' buttonType=", SITV_ToggleButton, "checkState=0 top=OPPOSITE,faceS left=WIDGET,faceB,0.4em tooltip='Invert normals'>"
+			"<button name=faceD.thin title='D' buttonType=", SITV_ToggleButton, "checkState=0 top=OPPOSITE,faceS left=WIDGET,faceI,0.4em tooltip='Double-sided faces'>"
 
 			"<label  name=beditS title='EDIT:' left=OPPOSITE,bszx maxWidth=bfaceS>"
 			"<button name=editS buttonType=", SITV_RadioButton, "checkState=1 top=WIDGET,faceS,0.5em left=MIDDLE,faceS>"
@@ -1222,12 +1520,14 @@ void uiCreate(SIT_Widget app)
 
 			"<button name=subdetail enabled=", prefs.detail == 0, "buttonType=", SITV_CheckBox,
 			" title='Force detail selection' top=WIDGET,editS,0.2em left=OPPOSITE,editS>"
+			//"<button name=dualside buttonType=", SITV_CheckBox, "top=OPPOSITE,subdetail left=WIDGET,subdetail,0.5em title='Dualside'>"
 
 			"<frame name=sep left=OPPOSITE,objects top=WIDGET,subdetail,0.8em title='Global :' right=FORM/>"
 
 			"<button name=rotm90 title='-90' buddyLabel=", "ORIENT:", &max, "top=WIDGET,sep,0.5em>"
 			"<button name=rot90 title='+90' top=OPPOSITE,rotm90 left=WIDGET,rotm90,0.5em>"
-			"<label name=brot90 title=", rot90Names[prefs.rot90], " left=WIDGET,rot90,0.5em top=MIDDLE,rot90>"
+			"<button name=shift title='Shift tex' top=OPPOSITE,rotm90 left=WIDGET,rot90,0.5em>"
+			"<label name=brot90 title=", rot90Names[prefs.rot90], " left=WIDGET,shift,0.5em top=MIDDLE,rot90>"
 
 			"<editbox name=rezx width=5em title=0 editType=", SITV_Integer, "minValue=-180 maxValue=180 buddyLabel=", "ROT:", &max, "top=WIDGET,rotm90,0.5em>"
 			"<editbox name=rezy width=5em title=0 editType=", SITV_Integer, "minValue=-180 maxValue=180 top=OPPOSITE,rezx left=WIDGET,rezx,0.2em>"
@@ -1294,9 +1594,9 @@ void uiCreate(SIT_Widget app)
 	finder.subdet = SIT_GetById(app, "subdetail");
 	finder.anim   = SIT_GetById(app, "animate");
 	SIT_GetValues(app, SIT_NVGcontext, &finder.nvgCtx, NULL);
-	for (i = 0; i <= 6; i ++)
+	for (i = 0; i <= 7; i ++)
 	{
-		static TEXT sides[] = "SENWTBI";
+		static TEXT sides[] = "SENWTBID";
 		TEXT name[8];
 		sprintf(name, "face%c", sides[i]); finder.faces[i] = SIT_GetById(app, name);
 		sprintf(name, "edit%c", sides[i]); finder.radio[i] = SIT_GetById(app, name);
@@ -1319,7 +1619,7 @@ void uiCreate(SIT_Widget app)
 		SIT_AddCallback(finder.center[i], SITE_OnChange, uiSetBlockValue, (APTR) (i+12));
 	}
 
-	finder.texUVMapId = renderSetTexture(prefs.lastTex);
+	finder.texUVMapId = renderSetTexture(prefs.lastTex, 0);
 	finder.nvgImgId = nvgCreateImage(finder.nvgCtx, (APTR) finder.texUVMapId, NVG_IMAGE_NEAREST | NVG_IMAGE_GLTEX);
 	viewInit(finder.tex, finder.nvgImgId);
 
@@ -1327,6 +1627,7 @@ void uiCreate(SIT_Widget app)
 	SIT_AddCallback(finder.manual, SITE_OnActivate,  uiToggleDetail, (APTR) 1);
 	SIT_AddCallback(finder.full,   SITE_OnActivate,  uiToggleDetail, NULL);
 	SIT_AddCallback(finder.list,   SITE_OnChange,    boxSelect, NULL);
+	SIT_AddCallback(finder.list,   SITE_OnClick,     boxSetName, NULL);
 	SIT_AddCallback(finder.model,  SITE_OnResize,    renderGetVPSize, NULL);
 	SIT_AddCallback(finder.model,  SITE_OnClickMove, renderRotateView, NULL);
 	SIT_AddCallback(finder.active, SITE_OnActivate,  renderSetFeature, (APTR) 1);
@@ -1339,11 +1640,13 @@ void uiCreate(SIT_Widget app)
 	SIT_AddCallback(SIT_GetById(app, "rot90"),   SITE_OnActivate, uiRotate90, NULL);
 	SIT_AddCallback(SIT_GetById(app, "rotm90"),  SITE_OnActivate, uiRotate90, (APTR) 1);
 	SIT_AddCallback(SIT_GetById(app, "biome"),   SITE_OnActivate, renderSetFeature, NULL);
-	SIT_AddCallback(SIT_GetById(app, "clstex"),  SITE_OnActivate, uiHandleCommands, (APTR) MENU_RESETTEX);
+	SIT_AddCallback(SIT_GetById(app, "dupbox"),  SITE_OnActivate, uiHandleCommands, (APTR) MENU_DUPBOX);
 	SIT_AddCallback(SIT_GetById(app, "copy"),    SITE_OnActivate, uiHandleCommands, (APTR) MENU_COPY);
 	SIT_AddCallback(SIT_GetById(app, "paste"),   SITE_OnActivate, uiHandleCommands, (APTR) MENU_PASTE);
 	SIT_AddCallback(SIT_GetById(app, "anim"),    SITE_OnActivate, uiHandleCommands, (APTR) MENU_ANIMATE);
 	SIT_AddCallback(SIT_GetById(app, "center"),  SITE_OnActivate, uiActiveCenter, NULL);
+	SIT_AddCallback(SIT_GetById(app, "shift"),   SITE_OnActivate, uiShowShift, NULL);
+	SIT_AddCallback(SIT_GetById(app, "bank"),    SITE_OnActivate, uiShowBanks, NULL);
 	SIT_AddCallback(SIT_GetById(app, "help"),    SITE_OnActivate, uiShowHelp, NULL);
 
 	animInit(finder.anim);

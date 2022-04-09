@@ -11,6 +11,7 @@
 
 typedef struct Block_t *    Block;
 typedef struct Anim_t *     Anim;
+typedef struct TexBank_t *  TexBank;
 
 
 /* from TileFinderUI.c */
@@ -56,6 +57,7 @@ struct Block_t
 	uint8_t  rotateCenter;       /* 0 or 1 */
 	uint8_t  ref;                /* primitive used as reference (*) */
 	uint8_t  incFaceId;          /* informative, used by MCEdit only */
+	uint8_t  custName;
 	Anim     anim;
 };
 
@@ -78,6 +80,7 @@ struct Anim_t
 
 struct Prefs_t
 {
+	ListHead banks;
 	int  width, height;
 	int  detail, bbox;
 	int  defU, defV;
@@ -87,12 +90,19 @@ struct Prefs_t
 	APTR nvg;
 };
 
+struct TexBank_t
+{
+	ListNode node;
+	TEXT     path[1];
+};
+
 #define MIN_IMAGE_SIZE           64        /* min size in px that image will be zoomed out */
 #define TILE_SIZE                16        /* size in px of tiles in main texture atlas */
 #define TILE_MASK                (TILE_SIZE-1)
 
 #define BHDR_FACESMASK           63
 #define BHDR_INVERTNORM          0x40
+#define BHDR_DUALSIDE            0x80
 #define BHDR_CUBEMAP             0x80
 #define BHDR_ROT90SHIFT          9
 #define BHDR_INCFACEID           (1<<17)

@@ -119,7 +119,7 @@ STRPTR blockParseFormat(STRPTR fmt)
 			if (! ('A' <= *fmt && *fmt <= 'Z')) return NULL;
 			p = strchr(fmt, ',');
 			if (p) *p++ = 0; else p = NULL;
-			switch (FindInList("TEX_CUBEMAP,TEX_DETAIL,TEX_INHERIT,SIZE,TR,ROT,ROTCAS,REF,ROT90,TEX,INVERT,INC_FACEID", fmt, 0)) {
+			switch (FindInList("TEX_CUBEMAP,TEX_DETAIL,TEX_INHERIT,SIZE,TR,ROT,ROTCAS,REF,ROT90,TEX,INVERT,INC_FACEID,DUALSIDE,NAME", fmt, 0)) {
 			case 0: b->detailTex = TEX_CUBEMAP; break;
 			case 1: b->detailTex = TEX_DETAIL; break;
 			case 2: b->detailTex = TEX_CUBEMAP_INHERIT; break;
@@ -154,7 +154,7 @@ STRPTR blockParseFormat(STRPTR fmt)
 				break;
 			case 9: /* TEX: texture coord */
 				switch (b->detailTex) {
-				case TEX_DETAIL: faces = b->faces; break;
+				case TEX_DETAIL: faces = b->faces & 63; break;
 				case TEX_CUBEMAP: faces = 63; break;
 				case TEX_CUBEMAP_INHERIT: faces = 0;
 				}
@@ -185,10 +185,19 @@ STRPTR blockParseFormat(STRPTR fmt)
 					return p;
 				break;
 			case 10: /* invert normals */
+				b->faces &= ~BHDR_DUALSIDE;
 				b->faces |= BHDR_INVERTNORM;
 				break;
 			case 11: /* not used by TileFinder, but needed by MCEdit */
 				b->incFaceId = 1;
+				break;
+			case 12: /* double-sided box */
+				b->faces &= ~BHDR_INVERTNORM;
+				b->faces |= BHDR_DUALSIDE;
+				break;
+			case 13: /* custom name for primitive */
+				CopyString(b->name, fromJS(&p), sizeof b->name);
+				b->custName = 1;
 				break;
 			default:
 				return NULL;
@@ -196,7 +205,7 @@ STRPTR blockParseFormat(STRPTR fmt)
 			fmt = p;
 		}
 	}
-	else /* old format -- deprecated */
+	else /* old format -- deprecated but stil supported because it was pretty trivial to parse */
 	{
 		faces = strtol(fmt, &fmt, 10);
 		prefs.rot90 = (faces >> 9) & 3;
@@ -305,8 +314,7 @@ static void AddBytes(STRPTR * ret, STRPTR buffer, int max)
 void blockCopy(void)
 {
 	Block  b = HEAD(boxList);
-	STRPTR p;
-	STRPTR mem;
+	STRPTR p, mem, line;
 	TEXT   block[512];
 	int    j;
 	for (mem = NULL; b; NEXT(b))
@@ -314,9 +322,10 @@ void blockCopy(void)
 		DATA16 tex;
 		int    faces;
 
-		p = block;
+		p = line = block;
 		p += sprintf(p, "FACES,%d,%s", b->faces & 63, detailTexNames[b->detailTex]);
-		if (b->faces & BHDR_INVERTNORM) p += sprintf(p, ",INVERT");
+		if (b->faces & BHDR_INVERTNORM) p += sprintf(p, ",INVERT"); else
+		if (b->faces & BHDR_DUALSIDE)   p += sprintf(p, ",DUALSIDE");
 		if (b->node.ln_Prev == NULL && prefs.rot90 > 0) p += sprintf(p, ",ROT90,%d", prefs.rot90 * 90);
 		p += sprintf(p, ",SIZE,%g,%g,%g", b->size[0], b->size[1], b->size[2]);
 		if (b->trans[VX] != 0 || b->trans[VY] != 0 || b->trans[VZ] != 0)
@@ -326,9 +335,11 @@ void blockCopy(void)
 		if (b->cascade[VX] != 0 || b->cascade[VY] != 0 || b->cascade[VZ] != 0)
 			p += sprintf(p, ",ROTCAS,%g,%g,%g", b->cascade[VX], b->cascade[VY], b->cascade[VZ]);
 		if (b->rotateCenter == 0)
-			p += sprintf(p, ",REF,%g,%g,%g,", b->rotateFrom[VX], b->rotateFrom[VY], b->rotateFrom[VZ]);
+			p += sprintf(p, ",REF,%g,%g,%g", b->rotateFrom[VX], b->rotateFrom[VY], b->rotateFrom[VZ]);
 		if (b->incFaceId)
 			p += sprintf(p, ",INC_FACEID");
+		if (b->custName)
+			p += sprintf(p, ",NAME,%s", toJS(b->name));
 
 		switch (b->detailTex) {
 		case TEX_DETAIL:
@@ -338,7 +349,12 @@ void blockCopy(void)
 				if (faces & 1)
 				{
 					for (j = 0; j < 8; j += 2, tex += 2)
+					{
+						DATA8 prev = p;
 						p += sprintf(p, ",%d", tex[0] + tex[1] * 513);
+						if (p - line >= 150)
+							line = prev + 2, p = prev + sprintf(prev, ",\n\t%d", tex[0] + tex[1] * 513);
+					}
 				}
 				else tex += 8;
 			}
@@ -346,8 +362,15 @@ void blockCopy(void)
 		case TEX_CUBEMAP:
 			p += sprintf(p, ",TEX");
 			for (tex = b->texUV, faces = 0; faces < 6; faces ++)
+			{
 				for (j = 0; j < 8; j += 2, tex += 2)
+				{
+					DATA8 prev = p;
 					p += sprintf(p, ",%d", tex[0] + tex[1] * 513);
+					if (p - line >= 150)
+						line = prev + 2, p = prev + sprintf(prev, ",\n\t%d", tex[0] + tex[1] * 513);
+				}
+			}
 		}
 		p += sprintf(p, ",\n");
 		AddBytes(&mem, block, p - block);
@@ -382,6 +405,7 @@ Bool blockPaste(void)
 	boxes = boxList;
 	prefs.nbBlocks = 0;
 	ListNew(&boxList);
+	prefs.rot90 = 0;
 
 	while (IsDef(clip))
 	{
@@ -433,7 +457,8 @@ int blockRemove(Block b)
 		for (modif = -1; b; NEXT(b), i ++)
 		{
 			if (modif < 0) modif = i;
-			sprintf(b->name, "Box %d", i+1);
+			if (! b->custName)
+				sprintf(b->name, "Box %d", i+1);
 		}
 		return modif;
 	}
@@ -697,6 +722,29 @@ void blockGenVertexBuffer(void)
 
 			count ++;
 			out += VERTEX_INT_SIZE;
+
+			if (b->faces & BHDR_DUALSIDE)
+			{
+				X3 += X2 - X1;
+				Y3 += Y2 - Y1;
+				Z3 += Z2 - Z1;
+				swap(X1, X2);
+				swap(Y1, Y2);
+				swap(Z1, Z2);
+				uint16_t texU2 = texU; texU = texUV[4];
+				out[0] = X1 | (Y1 << 16);
+				out[1] = Z1 | (X2 << 16);
+				out[2] = Y2 | (Z2 << 16);
+				out[3] = X3 | (Y3 << 16);
+				out[4] = Z3 | (texU << 16) | (texV << 25);
+				out[5] = ((texU2 + 128 - texU) << 16) | (texV >> 7) |
+						 ((texUV[5] + 128 - texV) << 24) | (norm << 7);
+				/* face id + primitive id for selection (should be light values here) */
+				out[6] = ((i+4) >> 2) | (nth << 3);
+
+				count ++;
+				out += VERTEX_INT_SIZE;
+			}
 		}
 	}
 
