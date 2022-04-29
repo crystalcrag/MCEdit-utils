@@ -9,16 +9,16 @@
 
 #include "utils.h"
 
-void   renderCube(void);
-int    renderInitStatic(void);
-int    renderSetTexture(STRPTR path, int useTexId);
-int    renderGetVPSize(SIT_Widget, APTR, APTR);
-int    renderRotateView(SIT_Widget, APTR, APTR);
-int    renderResetView(SIT_Widget, APTR, APTR);
-int    renderSetFeature(SIT_Widget, APTR, APTR);
-DATA32 renderMapBuffer(void);
-void   renderUnmapBuffer(int count);
-int    gladLoadGL(void);
+void renderCube(void);
+int  renderInitStatic(void);
+int  renderSetTexture(STRPTR path, int useTexId);
+int  renderGetVPSize(SIT_Widget, APTR, APTR);
+int  renderRotateView(SIT_Widget, APTR, APTR);
+int  renderResetView(SIT_Widget, APTR, APTR);
+int  renderSetFeature(SIT_Widget, APTR, APTR);
+APTR renderMapBuffer(int);
+void renderUnmapBuffer(int count);
+int  gladLoadGL(void);
 
 
 #define VERTEX_INT_SIZE     7
@@ -37,7 +37,8 @@ struct Render_t
 	int  uniformFaces, uniformActive;
 	int  uniformTexW, uniformTexH;
 	int  vertexCount;
-	int  texId;
+	int  linesCount;
+	int  texId, mapBuf;
 	int  vpSize[4];
 	mat4 view, curRotation;
 	mat4 MVP;

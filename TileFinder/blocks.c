@@ -572,12 +572,46 @@ static DATA16 blockAdjustUV(float vertex[12], DATA16 tex)
 
 static uint8_t opposite[] = {2*4, 3*4, 0*4, 1*4, 5*4, 4*4};
 
+extern Block boxGetCurrent(void);
+
+/* show center of rotation if block does not use center of box as ref */
+void blockGenAxis(void)
+{
+	Block b = boxGetCurrent();
+
+	renderMapBuffer(2);
+	if (b && b->rotateCenter == 0)
+	{
+		#define SZ      0.25
+		static float unitAxis[] = {
+			-SZ, 0,  0,  1,    SZ, 0,  0,  1,
+			 0, -SZ, 0,  2,    0,  SZ, 0,  2,
+			 0,  0, -SZ, 3,    0,  0,  SZ, 3,
+		};
+		#undef SZ
+		vec axis = renderMapBuffer(1), src;
+		float X = (b->rotateFrom[VX]) / 16 - 0.5f;
+		float Y = (b->rotateFrom[VY]) / 16 - 0.5f;
+		float Z = (b->rotateFrom[VZ]) / 16 - 0.5f;
+
+		for (src = unitAxis; src < EOT(unitAxis); axis += 4, src += 4)
+		{
+			axis[VX] = src[VX] + X;
+			axis[VY] = src[VY] + Y;
+			axis[VZ] = src[VZ] + Z;
+			axis[VT] = src[VT];
+		}
+		renderUnmapBuffer(6);
+	}
+}
+
 /* convert list of block into vertex data for blocks shader (using 28 bytes per quad format) */
 void blockGenVertexBuffer(void)
 {
-	DATA32 out = renderMapBuffer();
+	DATA32 out = renderMapBuffer(0);
 	DATA16 tex;
 	float  trans[3];
+	float  rotCenter[3];
 	int    count = 0;
 	mat4   rotation, rot90, rotCascade, tmp;
 	int    i, j, nth, nbRot, nbRotCas, faces;
@@ -614,16 +648,33 @@ void blockGenVertexBuffer(void)
 			vtx[1] += trans[1];
 			vtx[2] += trans[2];
 			if (nbRotCas > 0)
+			{
+				vecSub(vtx, vtx, rotCenter);
 				matMultByVec3(vtx, rotCascade, vtx);
+				vecAdd(vtx, vtx, rotCenter);
+			}
 			if (prefs.rot90 > 0)
 				matMultByVec3(vtx, rot90, vtx);
 		}
+		if (b->incFaceId)
+		{
+			memset(rotCenter, 0, sizeof rotCenter);
+			matIdent(rotCascade);
+			nbRotCas = 0;
+		}
+
 		for (i = 0; i < 3; i ++)
 		{
 			if (b->cascade[i] != 0)
 			{
 				matRotate(tmp, DEG2RAD(b->cascade[i]), i);
 				matMult(rotCascade, rotCascade, tmp);
+				if (nbRotCas == 0 && b->rotateCenter == 0)
+				{
+					rotCenter[VX] = b->rotateFrom[VX] / 16 - 0.5f;
+					rotCenter[VY] = b->rotateFrom[VY] / 16 - 0.5f;
+					rotCenter[VZ] = b->rotateFrom[VZ] / 16 - 0.5f;
+				}
 				nbRotCas ++;
 			}
 		}
@@ -659,9 +710,9 @@ void blockGenVertexBuffer(void)
 		case 2: matRotate(rot90, M_PI, 1); break;
 		case 3: matRotate(rot90, M_PI+M_PI_2, 1);
 		}
-		trans[0] = b->trans[0] / 16 - 0.5;
-		trans[1] = b->trans[1] / 16 - 0.5;
-		trans[2] = b->trans[2] / 16 - 0.5;
+		trans[0] = b->trans[0] / 16 - 0.5f;
+		trans[1] = b->trans[1] / 16 - 0.5f;
+		trans[2] = b->trans[2] / 16 - 0.5f;
 
 		int invert = b->faces & BHDR_INVERTNORM;
 		Block ref;
@@ -750,6 +801,7 @@ void blockGenVertexBuffer(void)
 
 	fprintf(stderr, "quad count = %d\n", count);
 	renderUnmapBuffer(count);
+	blockGenAxis();
 }
 
 /* convert cube map coord to detail tex coord */

@@ -130,7 +130,7 @@ int renderInitStatic(void)
 	glBindVertexArray(0);
 
 	/* already fill selection vertices */
-	glBufferData(GL_ARRAY_BUFFER, (DIM(cubeLines) + 6) * 16, NULL, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, (DIM(cubeLines) + 12) * 16, NULL, GL_STATIC_DRAW);
 	float * vertex = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
 	int i;
 	for (i = 0; i < DIM(cubeLines); i ++, vertex += 4)
@@ -360,16 +360,37 @@ int renderResetView(SIT_Widget w, APTR cd, APTR ud)
 	return 1;
 }
 
-DATA32 renderMapBuffer(void)
+APTR renderMapBuffer(int buffer)
 {
-	glBindBuffer(GL_ARRAY_BUFFER, render.vbo);
-	return glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+	vec mem;
+	render.mapBuf = buffer;
+	switch (buffer) {
+	case 0:
+		glBindBuffer(GL_ARRAY_BUFFER, render.vbo);
+		/* DATA32 */
+		return glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+		break;
+	case 1:
+		glBindBuffer(GL_ARRAY_BUFFER, render.vboSel);
+		mem = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+		return mem + render.linesCount * 4;
+	case 2:
+		render.linesCount = 24+6;
+	}
+	return NULL;
 }
 
 void renderUnmapBuffer(int count)
 {
-	glUnmapBuffer(GL_ARRAY_BUFFER);
-	render.vertexCount = count;
+	switch (render.mapBuf) {
+	case 0:
+		glUnmapBuffer(GL_ARRAY_BUFFER);
+		render.vertexCount = count;
+		break;
+	case 1:
+		glUnmapBuffer(GL_ARRAY_BUFFER);
+		render.linesCount += count;
+	}
 }
 
 void renderCube(void)
@@ -419,12 +440,12 @@ void renderCube(void)
 		glProgramUniform1fv(render.shaderSelect, render.uniformSide, 1, &back);
 		glUseProgram(render.shaderSelect);
 		glBindVertexArray(render.vaoSel);
-		glDrawArrays(GL_LINES, 0, DIM(cubeLines) + 6);
+		glDrawArrays(GL_LINES, 0, render.linesCount);
 
 		back = 1;
 		glDepthFunc(GL_GEQUAL);
 		glProgramUniform1fv(render.shaderSelect, render.uniformSide, 1, &back);
-		glDrawArrays(GL_LINES, 0, DIM(cubeLines) + 6);
+		glDrawArrays(GL_LINES, 0, render.linesCount);
 
 		glBindVertexArray(0);
 	}

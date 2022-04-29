@@ -16,7 +16,7 @@ struct MainCtrl_t
 	SIT_Widget tex, texUV, coords, model;
 	SIT_Widget faces[8], radio[8], subdet;
 	SIT_Widget center[3], centerCB, anim;
-	SIT_Widget active;
+	SIT_Widget active, incface;
 	mat4       rotation;
 	int        faceEdit, lastFaceSet;
 	int        texUVMapId, nvgImgId;

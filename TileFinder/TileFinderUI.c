@@ -456,6 +456,8 @@ static void boxAddOrUpdateList(Block box, Bool insert)
 		int len = strlen(box->name);
 		if (box->detailTex == TEX_CUBEMAP && ! box->ref)
 			strcpy(box->name + len, "*"), box->ref = 1;
+		else if (box->incFaceId)
+			strcpy(box->name + len, "+");
 
 		SIT_ListInsertItem(finder.list, -1, box, box->name, boxSize, boxPos);
 		box->name[len] = 0;
@@ -491,7 +493,8 @@ static void boxResetName(Block b, int index)
 	if (index < 0)
 		index = SIT_ListFindByTag(finder.list, b);
 	int len = strlen(b->name);
-	if (b->ref) strcat(b->name, "*");
+	if (b->ref) strcpy(b->name+len, "*"); else
+	if (b->incFaceId) strcpy(b->name+len, "+");
 	SIT_ListSetCell(finder.list, index, 0, DontChangePtr, DontChange, b->name);
 	b->name[len] = 0;
 }
@@ -577,6 +580,7 @@ static void boxDup(void)
 		memcpy(dup->name, b->name, offsetp(Block, faces) - offsetp(Block, name));
 		dup->faces = b->faces;
 		dup->rotateCenter = b->rotateCenter;
+		dup->incFaceId = b->incFaceId;
 		dup->custName = b->custName;
 		boxAddOrUpdateList(dup, True);
 		blockGenVertexBuffer();
@@ -674,6 +678,8 @@ static int boxSelect(SIT_Widget w, APTR cd, APTR ud)
 	if (prefs.detail == 0)
 		SIT_SetValues(finder.subdet, SIT_CheckState, b->detailTex == TEX_DETAIL, NULL);
 
+	SIT_SetValues(finder.incface, SIT_CheckState, b->incFaceId, NULL);
+
 	int id = 0, faces = b->faces;
 	while (id < 6 && (b->faces & 1) == 0) id ++, faces >>= 1;
 	if (0 <= id && id < 6 && id != finder.faceEdit)
@@ -684,6 +690,9 @@ static int boxSelect(SIT_Widget w, APTR cd, APTR ud)
 	}
 	for (id = 0, faces = b->faces; id <= 7; id ++, faces >>= 1)
 		SIT_SetValues(finder.faces[id], SIT_CheckState, faces & 1, NULL);
+
+	/* render location of rotation center if not set to "center" */
+	blockGenAxis();
 
 	return 1;
 }
@@ -720,7 +729,7 @@ static int boxFinishEdit(SIT_Widget w, APTR cd, APTR ud)
 			b->custName = 0;
 			sprintf(b->name, "Box %d", nth);
 		}
-		SIT_ListSetCell(finder.list, nth-1, 0, DontChangePtr, DontChange, b->name);
+		boxResetName(b, nth-1);
 		/* we will get an OnBlur once removed */
 		finder.cancelEdit = 1;
 	}
@@ -852,6 +861,30 @@ static int uiSetSubDetail(SIT_Widget w, APTR cd, APTR ud)
 	finder.detailMode = prefs.detail || checked;
 	SIT_ForceRefresh();
 
+	return 1;
+}
+
+static int uiSetIncFaceId(SIT_Widget w, APTR cd, APTR ud)
+{
+	Block b = boxGetCurrent();
+	int checked = 0;
+	SIT_GetValues(w, SIT_CheckState, &checked, NULL);
+	if (b)
+	{
+		b->incFaceId = checked;
+		boxResetName(b, -1);
+		for (NEXT(b); b; NEXT(b))
+		{
+			/* will cancel cascading rotation */
+			if (b->cascade[VX] != 0 ||
+			    b->cascade[VY] != 0 ||
+			    b->cascade[VZ] != 0)
+			{
+				blockGenVertexBuffer();
+				break;
+			}
+		}
+	}
 	return 1;
 }
 
@@ -1272,6 +1305,7 @@ static int uiShiftTex(SIT_Widget w, APTR cd, APTR ud)
 
 	boxUpdateTexCoord();
 	blockGenVertexBuffer();
+	viewShowTexCoord(boxGetCurrent(), finder.faceEdit);
 	SIT_CloseDialog(w);
 
 	return 1;
@@ -1497,6 +1531,7 @@ void uiCreate(SIT_Widget app)
 			"<label name=info.alt title=px left=WIDGET,rotcz,0.2em top=MIDDLE,rotcx>"
 
 			"<button name=center buttonType=", SITV_CheckBox, "title='Use box center' left=OPPOSITE,rotcx,0.2em top=WIDGET,rotcx,0.2em checkState=1>"
+			"<button name=incface buttonType=", SITV_CheckBox, "title='Inc. face Id' right=OPPOSITE,rotcz top=OPPOSITE,center style='text-align: right'>"
 
 			"<editbox name=tex readonly=1 title='' buddyLabel=", "TEX:", &max, "top=WIDGET,center,0.5em right=OPPOSITE,szz>"
 
@@ -1520,7 +1555,6 @@ void uiCreate(SIT_Widget app)
 
 			"<button name=subdetail enabled=", prefs.detail == 0, "buttonType=", SITV_CheckBox,
 			" title='Force detail selection' top=WIDGET,editS,0.2em left=OPPOSITE,editS>"
-			//"<button name=dualside buttonType=", SITV_CheckBox, "top=OPPOSITE,subdetail left=WIDGET,subdetail,0.5em title='Dualside'>"
 
 			"<frame name=sep left=OPPOSITE,objects top=WIDGET,subdetail,0.8em title='Global :' right=FORM/>"
 
@@ -1581,18 +1615,19 @@ void uiCreate(SIT_Widget app)
 	);
 
 	int i;
-	finder.app    = app;
-	finder.list   = SIT_GetById(app, "objects");
-	finder.full   = SIT_GetById(app, "full");
-	finder.manual = SIT_GetById(app, "detail");
-	finder.tex    = SIT_GetById(app, "texture");
-	finder.texUV  = SIT_GetById(app, "tex");
-	finder.model  = SIT_GetById(app, "preview");
-	finder.lab90  = SIT_GetById(app, "brot90");
-	finder.coords = SIT_GetById(app, "coords");
-	finder.active = SIT_GetById(app, "active");
-	finder.subdet = SIT_GetById(app, "subdetail");
-	finder.anim   = SIT_GetById(app, "animate");
+	finder.app     = app;
+	finder.list    = SIT_GetById(app, "objects");
+	finder.full    = SIT_GetById(app, "full");
+	finder.manual  = SIT_GetById(app, "detail");
+	finder.tex     = SIT_GetById(app, "texture");
+	finder.texUV   = SIT_GetById(app, "tex");
+	finder.model   = SIT_GetById(app, "preview");
+	finder.lab90   = SIT_GetById(app, "brot90");
+	finder.coords  = SIT_GetById(app, "coords");
+	finder.active  = SIT_GetById(app, "active");
+	finder.subdet  = SIT_GetById(app, "subdetail");
+	finder.anim    = SIT_GetById(app, "animate");
+	finder.incface = SIT_GetById(app, "incface");
 	SIT_GetValues(app, SIT_NVGcontext, &finder.nvgCtx, NULL);
 	for (i = 0; i <= 7; i ++)
 	{
@@ -1623,15 +1658,16 @@ void uiCreate(SIT_Widget app)
 	finder.nvgImgId = nvgCreateImage(finder.nvgCtx, (APTR) finder.texUVMapId, NVG_IMAGE_NEAREST | NVG_IMAGE_GLTEX);
 	viewInit(finder.tex, finder.nvgImgId);
 
-	SIT_AddCallback(app,           SITE_OnFinalize,  uiSaveChanges, NULL);
-	SIT_AddCallback(finder.manual, SITE_OnActivate,  uiToggleDetail, (APTR) 1);
-	SIT_AddCallback(finder.full,   SITE_OnActivate,  uiToggleDetail, NULL);
-	SIT_AddCallback(finder.list,   SITE_OnChange,    boxSelect, NULL);
-	SIT_AddCallback(finder.list,   SITE_OnClick,     boxSetName, NULL);
-	SIT_AddCallback(finder.model,  SITE_OnResize,    renderGetVPSize, NULL);
-	SIT_AddCallback(finder.model,  SITE_OnClickMove, renderRotateView, NULL);
-	SIT_AddCallback(finder.active, SITE_OnActivate,  renderSetFeature, (APTR) 1);
-	SIT_AddCallback(finder.subdet, SITE_OnActivate,  uiSetSubDetail, NULL);
+	SIT_AddCallback(app,            SITE_OnFinalize,  uiSaveChanges, NULL);
+	SIT_AddCallback(finder.manual,  SITE_OnActivate,  uiToggleDetail, (APTR) 1);
+	SIT_AddCallback(finder.full,    SITE_OnActivate,  uiToggleDetail, NULL);
+	SIT_AddCallback(finder.list,    SITE_OnChange,    boxSelect, NULL);
+	SIT_AddCallback(finder.list,    SITE_OnClick,     boxSetName, NULL);
+	SIT_AddCallback(finder.model,   SITE_OnResize,    renderGetVPSize, NULL);
+	SIT_AddCallback(finder.model,   SITE_OnClickMove, renderRotateView, NULL);
+	SIT_AddCallback(finder.active,  SITE_OnActivate,  renderSetFeature, (APTR) 1);
+	SIT_AddCallback(finder.subdet,  SITE_OnActivate,  uiSetSubDetail, NULL);
+	SIT_AddCallback(finder.incface, SITE_OnActivate,  uiSetIncFaceId, NULL);
 	SIT_AddCallback(SIT_GetById(app, "unit"),    SITE_OnActivate, uiToggleUnitBBox, NULL);
 	SIT_AddCallback(SIT_GetById(app, "reset"),   SITE_OnActivate, renderResetView, NULL);
 	SIT_AddCallback(SIT_GetById(app, "addbox"),  SITE_OnActivate, boxAddDefault, (APTR) 1);

@@ -30,6 +30,7 @@ Bool   blockPaste(void);
 int    blockRemove(Block);
 void   blockDeleteAll(void);
 void   blockGenVertexBuffer(void);
+void   blockGenAxis(void);
 Bool   blockCanUseTileCoord(Block);
 void   blockSetFaceCoord(Block, int face, int cellX, int cellY);
 void   blockSetFaceTexCoord(Block, int face, int * tex);
