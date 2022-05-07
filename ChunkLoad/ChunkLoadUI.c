@@ -1,5 +1,5 @@
 /*
- * ChunkLoad.c : SITGL app to debug mulit-thread chunk loading/meshing.
+ * ChunkLoad.c : SITGL app to debug mulit-threaded chunk loading/meshing.
  *
  * Written by T.Pierron, apr 2022.
  */
@@ -149,8 +149,6 @@ static int uiPaintChunks(SIT_Widget w, APTR cd, APTR ud)
 		nvgFillColorRGBA8(vg, "\0\0\0\xff");
 		nvgText(vg, xc + (width - nvgTextBounds(vg, 0, 0, coord, NULL, NULL)) * 0.5f, yc + (height - fontSize) * 0.5f, coord, NULL);
 	}
-
-//	fprintf(stderr, "XZ = %d, %d (%d, %d)\n", X, Z, CPOS(prefs.map->cx), CPOS(prefs.map->cz));
 
 	/* chunk grid */
 	nvgBeginPath(vg);
@@ -306,22 +304,26 @@ static int uiPaintMemory(SIT_Widget w, APTR cd, APTR ud)
 	}
 	nvgStroke(vg);
 
+
 	y0 += ROW_STAGING * rowSize;
 	nvgFillColorRGBA8(vg, "\x20\xff\x20\xff");
 	nvgText(vg, x0, y0, gpumem, EOT(gpumem)-1);
-	y0 += fontSize;
 
 	/* bank (GPU mem) */
 	GPUBank bank = HEAD(prefs.map->gpuBanks);
 
 	if (bank)
 	{
-		TEXT   coord[16];
+		TEXT   coord[64];
 		GPUMem mem = bank->usedList;
 		GPUMem eof = mem + bank->nbItem;
 		int    sz, off, length;
 		float  xt, yt;
 		DATA8  color;
+
+		i = sprintf(coord, "used: %d, free: %d, max: %d", bank->nbItem, bank->freeItem, bank->maxItems);
+		nvgText(vg, paint->x + paint->w - MEM_MARGIN - nvgTextBounds(vg, 0, 0, coord, coord+i, NULL), y0, coord, coord+i);
+		y0 += fontSize;
 
 		void renderChunk(void)
 		{
@@ -365,7 +367,7 @@ static int uiPaintMemory(SIT_Widget w, APTR cd, APTR ud)
 			off = mem->offset / 4096;
 			color = memColors + 19 * 4;
 
-			sprintf(coord, "free: %d:%d", sz,i);
+			sprintf(coord, "free: %d:%d", sz, i);
 			renderChunk();
 		}
 	}
@@ -408,6 +410,8 @@ static int uiThreadStatus(SIT_Widget w, APTR cd, APTR ud)
 		sprintf(msg, "Thread %d: %s", i + 1, status[threads[i].state]);
 		nvgText(vg, x0, y0, msg, NULL);
 		y0 += paint->fontSize + 3;
+
+		if (i == 1) x0 += paint->w * 0.5f, y0 = paint->y + MEM_MARGIN;
 	}
 
 	return 1;
@@ -417,12 +421,12 @@ static int uiSetRenderDist(SIT_Widget w, APTR cd, APTR ud)
 {
 	int size = prefs.mapSize + (int) ud - 1;
 
-	if (1 <= size && size <= 16)
+	if (2 <= size && size <= 16)
 	{
 		prefs.mapSize = size;
+		mapSetRenderDist(prefs.map, size);
 		size = (size<<1) + 1;
 		SIT_SetValues(prefs.mapLabel, SIT_Title | XfMt, "%dx%d", size, size, NULL);
-		//mapSetRenderDist(prefs.map, size);
 	}
 
 	return 1;

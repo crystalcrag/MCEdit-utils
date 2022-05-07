@@ -355,21 +355,23 @@ static void readSkyMap(void)
 static void uiCreate(SIT_Widget app)
 {
 	SIT_CreateWidgets(app,
-		"<button name=newmap title='New map'>"
-		"<button name=save title=Save left=WIDGET,newmap,0.5em>"
-		"<button name=step title=Step left=WIDGET,save,0.5em enabled=0>"
-		"<button name=debug buttonType=", SITV_CheckBox, "title='Step by step' left=WIDGET,step,0.5em top=MIDDLE,newmap curValue=", &prefs.stepByStep, ">"
-		"<label name=coord.big width=10em left=WIDGET,debug,0.5em, top=MIDDLE,newmap>"
+		"<canvas name=header left=FORM right=FORM>"
+			"<button name=newmap title='New map'>"
+			"<button name=save title=Save left=WIDGET,newmap,0.5em>"
+			"<button name=step title=Step left=WIDGET,save,0.5em enabled=0>"
+			"<button name=debug buttonType=", SITV_CheckBox, "title='Step by step' left=WIDGET,step,0.5em top=MIDDLE,newmap curValue=", &prefs.stepByStep, ">"
+			"<label name=coord.big width=10em left=WIDGET,debug,0.5em, top=MIDDLE,newmap>"
 
-		"<button name=opaque title=Opaque radioGroup=1 radioID=", BLOCK_OPAQUE, "buttonType=", SITV_ToggleButton,
-		" left=WIDGET,coord  curValue=", &prefs.blockType, "checkState=1>"
-		"<button name=leaves title=Leave  radioGroup=1 radioID=", BLOCK_LEAVE, "buttonType=", SITV_ToggleButton,
-		" left=WIDGET,opaque curValue=", &prefs.blockType, ">"
-		"<button name=water  title=Water  radioGroup=1 radioID=", BLOCK_WATER, "buttonType=", SITV_ToggleButton,
-		" left=WIDGET,leaves curValue=", &prefs.blockType, ">"
+			"<button name=opaque title=Opaque radioGroup=1 radioID=", BLOCK_OPAQUE, "buttonType=", SITV_ToggleButton,
+			" left=WIDGET,coord  curValue=", &prefs.blockType, "checkState=1>"
+			"<button name=leaves title=Leave  radioGroup=1 radioID=", BLOCK_LEAVE, "buttonType=", SITV_ToggleButton,
+			" left=WIDGET,opaque curValue=", &prefs.blockType, ">"
+			"<button name=water  title=Water  radioGroup=1 radioID=", BLOCK_WATER, "buttonType=", SITV_ToggleButton,
+			" left=WIDGET,leaves curValue=", &prefs.blockType, ">"
 
-		"<label name=help.dim title='LMB: add block, RMB: delete' right=FORM top=MIDDLE,newmap>"
-		"<canvas name=light top=WIDGET,newmap,0.5em left=FORM right=FORM bottom=FORM>"
+			"<label name=help.dim title='LMB: add block, RMB: delete' right=FORM top=MIDDLE,newmap>"
+		"</canvas>"
+		"<canvas name=light top=WIDGET,header,0.5em left=FORM right=FORM bottom=FORM>"
 	);
 	prefs.blocks[0] = SIT_GetById(app, "opaque");
 	prefs.blocks[1] = SIT_GetById(app, "leaves");

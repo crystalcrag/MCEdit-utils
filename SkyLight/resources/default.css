@@ -1,39 +1,47 @@
-/* stylesheet that somewhat mimics the style of nanovg */
-html { color: #333; font-size: 1.3vw; background: #ccc; padding: 0.5em }
+html { color: white; font-size: 1.3vw }
 
-button { padding: 0.2em 0.5em; border: 0.1em outset #ccc; background: #ddd;
-         color: #333; text-align: center; box-shadow: 0 0 3px #333 }
+#header { background: url("dirt.png"); padding: 0.5em; background-size: 64px 64px; border-bottom: 5px solid rgba(black,0.5) }
+#light { background: rgba(#000, 0.3), url("dirt.png"); background-size: 100% 100%, 64px 64px; box-shadow: 0 0 20px black inset }
 
-button:active { background: selback; outline: 2px solid transparent; border: 0.1em solid #131; color: selfore; box-shadow: 0 0 5px black inset; -outline-margin: 1; }
 
-button:disabled { border: 0.1em solid #444; outline: 2px solid transparent; background: #ddd; color: white; text-shadow: 1px 1px black; box-shadow: 0 0 3px #333 inset; -outline-margin: 1;  }
+button { padding: 6px 10px 2px; border-radius: 4px; background: linear-gradient(to bottom, #87cb85, #6da46b); font-weight: bold;
+		 text-shadow: 0 2px rgba(#000,0.5); border: 2px solid #547e53; color: white; text-align: center;
+		 border-color: #94df92 #547e53 #547e53 #94df92; outline: 3px solid black; text-transform: uppercase }
 
-editbox { padding: 0.2em 0.5em; background: white; color: black; box-shadow: 0 0 3px #444 inset; border: 1px inset #888 }
+button:active { background: linear-gradient(to bottom, #416240, #2a3f29); border-width: 0; padding: 8px 12px 4px; box-shadow: 0 0 4px black inset; color: #ccc }
+button:disabled { padding: 8px 12px 4px; background: linear-gradient(to bottom, rgba(#555, 0.5), rgba(#444, 0.5)); border: 0; color: #aaa;
+			text-shadow: 0.1em 0.1em black; outline: 3px solid black }
 
-table { background: white; color: black; box-shadow: 0 0 3px #444 inset; border: 0.1em inset #888 }
-table th { border: 0.1em outset #ccc; background: #ccc; padding: 4px; color: #333; text-align: center }
+editbox { padding: 6px; border: 2px solid #87cb85; background-color: black; -caret-color: red }
 
-canvas  { background: url(checkboard.png); border: 2px solid black; box-shadow: 4px 4px rgba(black, 0.3); text-align: left }
-.editor { background: white }
-.dim    { color: #888 }
-.big    { font-weight: bold }
-::link  { color: #55f }
+editbox spin.up { background: url(mask:arrowup.png) 50% 50% no-repeat, linear-gradient(to bottom, #87cb85, #6da46b); background-size: 70% 35%, 100% 100% }
+editbox spin.down { background: url(mask:arrowdown.png) 50% 50% no-repeat, linear-gradient(to bottom, #87cb85, #6da46b); background-size: 70% 35%, 100% 100% }
+editbox spin.up:active { background: url(mask:arrowup.png) 50% 50% no-repeat, linear-gradient(to bottom, #416240, #2a3f29); color: #ccc }
+editbox spin.down:active { background: url(mask:arrowdown.png) 50% 50% no-repeat, linear-gradient(to bottom, #416240, #2a3f29); color: #ccc }
 
-radio box { border-radius: 1em; border: 0.1em inset #888; padding: 0.4em; background-color: white; vertical-align: middle }
-radio:checked box { background: white url(mask:circle.png) no-repeat 50% 50%; background-size: 80% 80%; color: selback }
-tooltip { background-color: #ffffe1; color: black; padding: 0.3em; white-space: pre; border: 1px solid black; box-shadow: 3px 3px 4px -4px #333 }
+checkbox, radio { border-radius: 0.3em }
+checkbox box { padding: 0.4em; border: 2px solid #87cb85; background-color: black; border-radius: 0.15em; vertical-align: middle }
+checkbox:checked box { background: #6da46b url(mask:checkmark.png) no-repeat 50% 50%; background-size: 80% 80%; color: white }
+radio:kbdfocus, checkbox:kbdfocus { outline: 2px solid blue 0.2em }
 
-fieldset { border-top: 0.2em groove #ccc; color: blue; border-radius: 0.5em }
+radio box { border-radius: 1em; border: 2px solid #87cb85; padding: 0.4em; background-color: black; vertical-align: middle }
+radio:checked box { background: black url(mask:circle.png) no-repeat 50% 50%; background-size: 80% 80%; color: #c4f4c3 }
 
-checkbox box {
-	padding:          0.4em;
-	background:       #aaa;
-	border:           2px inset #888;
-	vertical-align:   middle;
-	box-shadow:       0 0 3px #222 inset;
-}
-checkbox:checked box {
-	background:       selback url(mask:checkmark.png) no-repeat 50% 50%;
-	background-size:  80% 80%;
-	color:            white
-}
+button:kbdfocus { outline: 2px solid blue }
+button:kbdfocus:active { outline-color: black }
+
+thumb { background-color: #ccc; border: 0.1em outset #ccc }
+editbox vscroll { background-color: #5d8c5c; border: 2px solid black }
+editbox thumb { background-color: #87cb85; border: 0 }
+
+slider thumb { border-radius: 5px }
+slider { border: 2px solid #87cb85 }
+gauge { background-color: #5c8b5b; box-shadow: 1px 1px 2px black inset }
+slider:kbdfocus { outline: 2px solid blue }
+
+combobox { border: 2px solid #87cb85; background-color: black; padding: 6px }
+combobox arrow { background: #87cb85 url(mask:arrowdown.png) 50% 50% no-repeat; background-size: 70% 50% }
+
+frame { border: 2px solid #87cb85; border-radius: 0.5em }
+
+::link { color: #55f }

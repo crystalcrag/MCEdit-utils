@@ -7,31 +7,32 @@
 
 #define NUM_THREADS       2
 #define MEMPOOL           4 * 1024 * 1024    /* allocated on the GPU (in bytes) */
-#define MEMITEM           512
+#define MEMITEM           32
 #define BUILD_HEIGHT      256
 #define CHUNK_LIMIT       (BUILD_HEIGHT/16)
 #define CPOS(pos)         ((int) floor(pos) >> 4)
 
 /* private definition */
-typedef struct ChunkData_t *   ChunkData;
-typedef struct GPUBank_t *     GPUBank;
-typedef struct GPUMem_t *      GPUMem;
-typedef struct Map_t *         Map;
-typedef struct Chunk_t *       Chunk;
-typedef struct Chunk_t         Chunk_t;
-typedef struct ChunkData_t     ChunkData_t;
-typedef struct ChunkData_t *   ChunkData;
-typedef float                  vec4[4];
-typedef float                  mat4[16];
-typedef uint32_t *             DATA32;
-typedef uint16_t *             DATA16;
-typedef int16_t *              DATAS16;
+typedef struct ChunkData_t *       ChunkData;
+typedef struct GPUBank_t *         GPUBank;
+typedef struct GPUMem_t *          GPUMem;
+typedef struct Map_t *             Map;
+typedef struct Chunk_t *           Chunk;
+typedef struct Chunk_t             Chunk_t;
+typedef struct ChunkData_t         ChunkData_t;
+typedef struct ChunkData_t *       ChunkData;
+typedef float                      vec4[4];
+typedef float                      mat4[16];
+typedef uint32_t *                 DATA32;
+typedef uint16_t *                 DATA16;
+typedef int16_t *                  DATAS16;
 
 Map  mapInitFromPath(int renderDist, int * XZ);
 Bool mapMoveCenter(Map, vec4 old, vec4 pos);
 int  checkMem(GPUBank bank);
 void mapGenFlush(Map map);
 void mapFreeAll(Map map);
+Bool mapSetRenderDist(Map, int maxDist);
 
 
 struct ChunkData_t
@@ -71,22 +72,22 @@ enum /* flags for Chunk_t.cflags */
 	CFLAG_PENDINGDEL = 0x10,       /* chunk not needed anymore */
 };
 
-struct GPUMem_t              /* one allocation */
+struct GPUMem_t                    /* one allocation */
 {
-	ChunkData cd;            /* chunk at this location (NULL == free) */
-	int       size;          /* in bytes */
-	int       offset;        /* avoid scanning the whole list */
-	int       id;            /* easier to debug */
+	ChunkData cd;                  /* chunk at this location (NULL == free) */
+	int       size;                /* in bytes */
+	int       offset;              /* avoid scanning the whole list */
+	int       id;                  /* easier to debug */
 };
 
-struct GPUBank_t             /* one chunk of memory */
+struct GPUBank_t                   /* one chunk of memory */
 {
 	ListNode  node;
-	int       memAvail;      /* in bytes */
-	int       memUsed;       /* in bytes */
-	GPUMem    usedList;      /* Array of memory range in use */
-	int       maxItems;      /* max items available in usedList */
-	int       nbItem;        /* number of items in usedList */
+	int       memAvail;            /* in bytes */
+	int       memUsed;             /* in bytes */
+	GPUMem    usedList;            /* Array of memory range in use */
+	int       maxItems;            /* max items available in usedList */
+	int       nbItem;              /* number of items in usedList */
 	int       freeItem;
 };
 
@@ -112,7 +113,6 @@ struct Thread_t
 	Mutex wait;
 	Map   map;
 	int   state;
-	int   memIndex;
 };
 
 enum {
@@ -140,6 +140,16 @@ struct Frustum_t                   /* frustum culling static tables (see doc/int
 	int8_t *  spiral;
 	int8_t *  lazy;
 	uint16_t  lazyCount;
+};
+
+enum
+{
+	SIDE_SOUTH,
+	SIDE_EAST,
+	SIDE_NORTH,
+	SIDE_WEST,
+	SIDE_TOP,
+	SIDE_BOTTOM,
 };
 
 #endif

@@ -22,7 +22,6 @@ extern int loadSpeed;
 static volatile int threadStop;
 
 static void renderFreeArray(ChunkData cd);
-static void chunkFree(Chunk);
 
 #define END_OF_LIST        0xffffffff
 #define THREAD_EXIT_LOOP   1
@@ -31,24 +30,26 @@ static void chunkFree(Chunk);
 /* thoroughly checks that all data structure are coherent */
 int checkMem(GPUBank bank)
 {
-	GPUMem free = bank->usedList + bank->maxItems - 1;
-	GPUMem eof  = free - bank->freeItem + 1;
-
-	while (free > eof)
+	if (bank->freeItem > 0)
 	{
-		GPUMem next = free - 1;
+		GPUMem free = bank->usedList + bank->maxItems - 1;
+		GPUMem eof  = free - bank->freeItem + 1;
 
-		if (next->offset <= free->offset + free->size)
-			/* must be ordered by increasing <offset>, without range overlapping */
-			return 1;
+		while (free > eof)
+		{
+			GPUMem next = free - 1;
 
-		free --;
+			if (next->offset <= free->offset + free->size)
+				/* must be ordered by increasing <offset>, without range overlapping */
+				return 1;
+
+			free --;
+		}
+
+		if (free->offset + free->size == bank->memUsed)
+			/* last block is freed: it should reduce the range of memory used */
+			return 2;
 	}
-
-	if (free->offset + free->size == bank->memUsed)
-		/* last block is freed: it should reduce the range of memory used */
-		return 2;
-
 	return 0;
 }
 
@@ -95,8 +96,6 @@ static int renderStoreArrays(Map map, ChunkData cd, int size)
 		glVertexAttribPointer(2, 4, GL_FLOAT, 0, 0, 0);
 		glEnableVertexAttribArray(2);
 		glVertexAttribDivisor(2, 1);
-
-		checkOpenGLError("renderStoreArrays");
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 		#endif
 
@@ -106,8 +105,9 @@ static int renderStoreArrays(Map map, ChunkData cd, int size)
 	/* check for free space in the bank */
 	GPUMem store = bank->usedList + bank->nbItem;
 	GPUMem free  = bank->usedList + bank->maxItems - 1;
-	GPUMem eof   = free - bank->freeItem;
-	while (free > eof)
+	GPUMem eof   = free - bank->freeItem + 1;
+	int    off   = bank->memUsed;
+	while (free >= eof)
 	{
 		/* first place available */
 		if (size <= free->size)
@@ -115,12 +115,10 @@ static int renderStoreArrays(Map map, ChunkData cd, int size)
 			/* no need to keep track of such a small quantity (typical chunk mesh is around 10Kb) */
 			if (size + 2*4096 >= free->size)
 				size = free->size;
-			store->offset = free->offset;
-			store->size = size;
+			off = free->offset;
 			if (free->size == size)
 			{
 				/* freed slot entirely reused */
-				eof -= bank->freeItem;
 				bank->freeItem --;
 				/* free list must be contiguous */
 				memmove(eof + 1, eof, (DATA8) free - (DATA8) eof);
@@ -134,15 +132,18 @@ static int renderStoreArrays(Map map, ChunkData cd, int size)
 		}
 		free --;
 	}
+	bank->memUsed += size;
+	found:
 	/* no free block big enough: alloc at the end */
-	if (bank->nbItem + bank->freeItem == bank->maxItems)
+	if (bank->nbItem + bank->freeItem + 1 > bank->maxItems)
 	{
 		/* not enough items */
 		store = realloc(bank->usedList, (bank->maxItems + MEMITEM) * sizeof *store);
 		if (store)
 		{
 			/* keep free list at the end */
-			memmove(store + bank->maxItems - bank->freeItem, store + bank->maxItems + MEMITEM - bank->freeItem, bank->freeItem * sizeof *store);
+			fprintf(stderr, "reallocating from %d to %d\n", bank->maxItems, bank->maxItems+MEMITEM);
+			memmove(store + bank->maxItems + MEMITEM - bank->freeItem, store + bank->maxItems - bank->freeItem, bank->freeItem * sizeof *store);
 			memset(store + bank->maxItems - bank->freeItem, 0, MEMITEM * sizeof *store);
 			bank->maxItems += MEMITEM;
 			bank->usedList = store;
@@ -151,10 +152,8 @@ static int renderStoreArrays(Map map, ChunkData cd, int size)
 	}
 	store = bank->usedList + bank->nbItem;
 	store->size = size;
-	store->offset = bank->memUsed;
-	bank->memUsed += size;
+	store->offset = off;
 
-	found:
 	bank->nbItem ++;
 	store->cd = cd;
 	store->id = cd->chunk->color;
@@ -162,7 +161,10 @@ static int renderStoreArrays(Map map, ChunkData cd, int size)
 	cd->glSize = size;
 	cd->glBank = bank;
 
-//	fprintf(stderr, "alloc chunk %d at %d\n", cd->chunk->color, bank->nbItem - 1);
+	fprintf(stderr, "alloc chunk at %d, %d: %d/%d (%d+%d)\n", cd->chunk->X, cd->chunk->Z, bank->freeItem + bank->nbItem, bank->maxItems, bank->freeItem, bank->nbItem);
+
+	if (bank->nbItem + bank->freeItem > bank->maxItems)
+		puts("no good");
 
 	int ret = checkMem(bank);
 	if (ret > 0)
@@ -207,7 +209,7 @@ static void renderFreeArray(ChunkData cd)
 			mem->offset = start;
 			mem->size   = size;
 			bank->freeItem ++;
-			return;
+			goto check;
 		}
 		else if (end == mem->offset)
 		{
@@ -230,7 +232,7 @@ static void renderFreeArray(ChunkData cd)
 				bank->memUsed -= mem->size;
 				bank->freeItem --;
 			}
-			return;
+			goto check;
 		}
 		else if (start == mem->offset + mem->size)
 		{
@@ -259,10 +261,12 @@ static void renderFreeArray(ChunkData cd)
 	else bank->memUsed -= size;
 	/* else last item being removed: simply discard everything */
 
+	check:
+
+	fprintf(stderr, "free chunk at %d, %d: %d/%d\n", cd->chunk->X, cd->chunk->Z, bank->freeItem + bank->nbItem, bank->maxItems);
 	end = checkMem(bank);
 	if (end > 0)
 		fprintf(stderr, "error free code = %d for chunk %d\n", end, cd->chunk->color);
-
 }
 
 void renderFinishMesh(Map map, ChunkData cd)
@@ -291,7 +295,7 @@ void renderFinishMesh(Map map, ChunkData cd)
 //	fprintf(stderr, "allocating %d bytes at %d for chunk %d, %d / %d\n", total, offset, cd->chunk->X, cd->chunk->Z, cd->Y);
 }
 
-static void chunkFree(Chunk c)
+static void chunkFree(Chunk c, int thread)
 {
 	int i;
 	for (i = 0; i < DIM(c->layer); i ++)
@@ -299,7 +303,12 @@ static void chunkFree(Chunk c)
 		ChunkData cd = c->layer[i];
 		if (cd)
 		{
-			if (cd->glBank) renderFreeArray(cd);
+			if (cd->glBank)
+			{
+				if (thread)
+					fprintf(stderr, "must not free render data from thread.\n");
+				renderFreeArray(cd);
+			}
 			free(cd);
 		}
 	}
@@ -312,11 +321,13 @@ Bool chunkLoad(Chunk chunk, int x, int z, int id)
 {
 	static int color = 0;
 	if (chunk->X != x || chunk->Z != z)
-		chunkFree(chunk);
+	{
+		chunkFree(chunk, True);
+	}
 
 	if ((chunk->cflags & CFLAG_GOTDATA) == 0)
 	{
-		fprintf(stderr, "thread %d: loaded chunk %d, %d: %d\n", id, x, z, chunk->processing);
+		//fprintf(stderr, "thread %d: loaded chunk %d, %d: %d\n", id, x, z, chunk->processing);
 		chunk->X = x;
 		chunk->Z = z;
 		chunk->maxy = 1;
@@ -326,7 +337,7 @@ Bool chunkLoad(Chunk chunk, int x, int z, int id)
 			ThreadPause(rand() % loadSpeed);
 
 		if (chunk->layer[0])
-			puts("not good");
+			fprintf(stderr, "memory leak likely on chunkLoad()\n");
 
 		ChunkData cd = calloc(sizeof *cd, 1);
 		chunk->layer[0] = cd;
@@ -345,11 +356,8 @@ void mapGenStopThread(Map map, int exit)
 	threadStop = exit;
 	int i;
 
-	if (exit == THREAD_EXIT)
-	{
-		/* map is being deleted: empty semaphore and exit threads */
-		while (SemWaitTimeout(map->genCount, 0));
-	}
+	/* list is about to be redone/freed */
+	while (SemWaitTimeout(map->genCount, 0));
 
 	/* need to wait, thread might hold pointer to object that are going to be freed */
 	for (i = 0; i < NUM_THREADS; i ++)
@@ -392,9 +400,9 @@ void mapGenStopThread(Map map, int exit)
 			while (threads[i].state >= 0);
 			MutexDestroy(threads[i].wait);
 		}
+		memset(threads, 0, sizeof threads);
 	}
 
-	memset(threads, 0, sizeof threads);
 	/* clear staging area */
 	memset(staging.usage, 0, sizeof staging.usage);
 	SemAdd(staging.capa, staging.total);
@@ -440,7 +448,7 @@ void mapGenFlush(Map map)
 			memmove(index, index + 1, eof - index - 1);
 			staging.chunkData --;
 			eof --;
-			fprintf(stderr, "transfering chunk %d, %d to GPU: %d blocks (%d)\n", chunk->X, chunk->Z, count, staging.total);
+			//fprintf(stderr, "transfering chunk %d, %d to GPU: %d blocks (%d)\n", chunk->X, chunk->Z, count, staging.total);
 		}
 		/* wait for next frame */
 		else index ++;
@@ -449,13 +457,14 @@ void mapGenFlush(Map map)
 	MutexLeave(staging.alloc);
 }
 
-static void mapRedoGenList(Map map)
+static int mapRedoGenList(Map map)
 {
 	int8_t * spiral;
 	int      XC   = CPOS(map->cx) << 4;
 	int      ZC   = CPOS(map->cz) << 4;
 	int      n    = map->maxDist * map->maxDist;
 	int      area = map->mapArea;
+	int      ret  = 0;
 
 	mapGenStopThread(map, THREAD_EXIT_LOOP);
 	ListNew(&map->genList);
@@ -467,16 +476,17 @@ static void mapRedoGenList(Map map)
 		int Z = ZC + (spiral[1] << 4);
 		if (c->X != X || c->Z != Z)
 		{
-			chunkFree(c);
+			chunkFree(c, False);
 		}
 		if ((c->cflags & CFLAG_HASMESH) == 0)
 		{
 			c->X = X;
 			c->Z = Z;
 			ListAddTail(&map->genList, &c->next);
-			SemAdd(map->genCount, 1);
+			ret ++;
 		}
 	}
+	return ret;
 }
 
 Bool mapMoveCenter(Map map, vec4 old, vec4 pos)
@@ -493,16 +503,41 @@ Bool mapMoveCenter(Map map, vec4 old, vec4 pos)
 		if (dx >= area || dz >= area)
 		{
 			/* reset map center */
-			map->mapX = map->mapZ = area / 2;
+			map->mapX = map->mapZ = area >> 1;
 		}
 		else /* some chunks will still be useful */
 		{
 			map->mapX = (map->mapX + dx + area) % area;
 			map->mapZ = (map->mapZ + dz + area) % area;
 		}
-		mapRedoGenList(map);
+		int count = mapRedoGenList(map);
 		map->center = map->chunks + (map->mapX + map->mapZ * area);
-		//mapMarkLazyChunk(map);
+
+		/* free lazy chunks that are not at their place */
+		int8_t * ptr, * end;
+		for (ptr = frustum.lazy, end = ptr + frustum.lazyCount; ptr < end; ptr += 3)
+		{
+			uint8_t dir = ptr[2];
+			uint8_t XC  = (map->mapX + ptr[0] + area) % area;
+			uint8_t YC  = (map->mapZ + ptr[1] + area) % area;
+			Chunk chunk = &map->chunks[XC + YC * area];
+			if (chunk->maxy == 0) continue;
+
+			Chunk neighbor = chunk + map->chunkOffsets[chunk->neighbor + dir];
+
+			int X = chunk->X;
+			int Z = chunk->Z;
+			if (dir & 1) Z += 16;
+			if (dir & 2) X += 16;
+			if (dir & 4) Z -= 16;
+			if (dir & 8) X -= 16;
+
+			if (X != neighbor->X || Z != neighbor->Z)
+				chunkFree(chunk, False);
+		}
+
+		/* needs to be done after lazy chunks have been cleared */
+		SemAdd(map->genCount, count);
 		return True;
 	}
 	return False;
@@ -525,7 +560,7 @@ Chunk mapAllocArea(int area)
 	if (chunks)
 	{
 		/* should be property of a map... */
-		int8_t * ptr = realloc(frustum.spiral, dist * dist * 2 + (dist * 4 + 4) * 2);
+		int8_t * ptr = realloc(frustum.spiral, dist * dist * 2 + (dist * 4 + 4) * 3);
 
 		if (ptr)
 		{
@@ -551,19 +586,34 @@ Chunk mapAllocArea(int area)
 			frustum.lazy = frustum.spiral + i * 2;
 
 			/* to quickly enumerate all lazy chunks (need when map center has changed) */
-			for (ptr = frustum.lazy, j = 0, dist += 2, i = dist >> 1; j < dist; j ++, ptr += 4)
+			for (ptr = frustum.lazy, j = 0, dist += 2, i = dist >> 1; j < dist; j ++, ptr += 6)
 			{
-				ptr[0] = ptr[2] = j - i;
+				/* note: 3rd value is direction of the nearest chunk within render distance (from lazy chunk POV) */
+				ptr[0] = ptr[3] = j - i;
+				ptr[2] = 1 << SIDE_SOUTH;
 				ptr[1] = - i;
-				ptr[3] =   i;
+				ptr[4] =   i;
+				ptr[5] = 1 << SIDE_NORTH;
 			}
-			for (j = 0, dist -= 2; j < dist; j ++, ptr += 4)
+
+			/* corner */
+			ptr[-1] |= 1 << SIDE_WEST;
+			ptr[-4] |= 1 << SIDE_WEST;
+
+			for (j = 0, dist -= 2; j < dist; j ++, ptr += 6)
 			{
-				ptr[1] = ptr[3] = j - (dist >> 1);
+				ptr[1] = ptr[4] = j - (dist >> 1);
 				ptr[0] = - i;
-				ptr[2] =   i;
+				ptr[3] =   i;
+				ptr[2] = 1 << SIDE_EAST;
+				ptr[5] = 1 << SIDE_WEST;
 			}
-			frustum.lazyCount = (ptr - frustum.lazy) >> 1;
+
+			/* corner */
+			frustum.lazy[2] |= 1 << SIDE_EAST;
+			frustum.lazy[5] |= 1 << SIDE_EAST;
+
+			frustum.lazyCount = ptr - frustum.lazy;
 
 			/* reset chunkNeighbor table: it depends on map size */
 			static uint8_t wrap[] = {0, 12, 4, 6, 8, 2, 9, 1, 3}; /* bitfield: &1:+Z, &2:+X, &4:-Z, &8:-X, ie: SENW */
@@ -647,7 +697,7 @@ void mapGenChunkAsync(void * arg)
 	while (threadStop != THREAD_EXIT)
 	{
 		/* waiting for something to do... */
-		fprintf(stderr, "thread %d: waiting\n", id);
+		//fprintf(stderr, "thread %d: waiting\n", id);
 
 		thread->state = THREAD_WAIT_GENLIST;
 		SemWait(map->genCount);
@@ -665,7 +715,7 @@ void mapGenChunkAsync(void * arg)
 		if (! list || (list->cflags & CFLAG_HASMESH))
 			goto bail;
 
-		fprintf(stderr, "thread %d: processing %d, %d\n", id, list->X, list->Z);
+		//fprintf(stderr, "thread %d: processing %d, %d\n", id, list->X, list->Z);
 
 		/* simulate loading */
 		static uint8_t directions[] = {12, 4, 6, 8, 0, 2, 9, 1, 3};
@@ -768,13 +818,12 @@ Map mapInitFromPath(int renderDist, int * XZ)
 	map->cz      = XZ[1];
 
 	map->genLock = MutexCreate();
-	map->genCount = SemInit(0);
 
 	map->chunks = mapAllocArea(map->mapArea);
 	map->center = map->chunks + (map->mapX + map->mapZ * map->mapArea);
 	map->chunkOffsets = chunkNeighbor;
 
-	mapRedoGenList(map);
+	map->genCount = SemInit(mapRedoGenList(map));
 
 	if (! staging.alloc)
 	{
@@ -793,6 +842,97 @@ Map mapInitFromPath(int renderDist, int * XZ)
 	return map;
 }
 
+/* change render distance dynamicly */
+Bool mapSetRenderDist(Map map, int maxDist)
+{
+	int area = (maxDist * 2) + 4;
+
+	if (area == map->mapArea) return True;
+	if (maxDist < 2 || maxDist > 31) return False;
+
+	Chunk chunks = mapAllocArea(area);
+
+	fprintf(stderr, "setting map size to %d (from %d)\n", area, map->mapArea);
+
+	if (chunks)
+	{
+		/* we have all the memory we need: can't fail from this point */
+		int oldArea  = map->mapArea;
+		int size     = ((oldArea < area ? oldArea : area) - 2) >> 1;
+		int XZmid    = (area >> 1) - 1;
+		int freeMesh = 0;
+		int i, j, k;
+
+		mapGenStopThread(map, THREAD_EXIT_LOOP);
+		maxDist ++;
+
+		/* copy chunk information (including lazy chunks) */
+		for (j = -size; j <= size; j ++)
+		{
+			if (abs(j) == maxDist) freeMesh |= 1;
+			else freeMesh &= ~1;
+			for (i = -size; i <= size; i ++)
+			{
+				int XC = map->mapX + i;
+				int ZC = map->mapZ + j;
+
+				if (XC < 0)        XC += oldArea; else
+				if (XC >= oldArea) XC -= oldArea;
+				if (ZC < 0)        ZC += oldArea; else
+				if (ZC >= oldArea) ZC -= oldArea;
+
+				Chunk source = map->chunks + XC + ZC * oldArea;
+				Chunk dest   = chunks + (XZmid+i) + (XZmid+j) * area;
+				char  nbor   = dest->neighbor;
+				//memcpy(&dest->save, &source->save, sizeof *dest - offsetp(Chunk, save));
+				dest[0] = source[0];
+				source->cflags = 0;
+				dest->neighbor = nbor;
+				if (abs(i) == maxDist) freeMesh |= 2;
+				else freeMesh &= ~2;
+
+				/* ChunkData ref needs to be readjusted */
+				for (k = dest->maxy-1; k >= 0; k --)
+				{
+					ChunkData cd = dest->layer[k];
+					if (cd)
+					{
+						cd->chunk = dest;
+						if (freeMesh && cd->glSlot)
+						{
+							dest->cflags &= ~CFLAG_HASMESH;
+							renderFreeArray(cd);
+						}
+					}
+					else fprintf(stderr, "chunk %d, %d missing layer %d?\n", dest->X, dest->Z, k);
+				}
+			}
+		}
+
+		if (oldArea > area)
+		{
+			Chunk old;
+			/* need to free chunk outside new render dist */
+			for (i = oldArea * oldArea, old = map->chunks; i > 0; old ++, i --)
+			{
+				if (old->cflags & (CFLAG_HASMESH|CFLAG_GOTDATA))
+					chunkFree(old, True);
+			}
+		}
+		/* need to point to the new chunk array, otherwise it will point to some free()'ed memory */
+		free(map->chunks);
+		map->maxDist  = area - 3;
+		map->mapArea  = area;
+		map->mapZ     = map->mapX = XZmid;
+		map->chunks   = chunks;
+		map->center   = map->chunks + map->mapX + map->mapZ * area;
+		SemAdd(map->genCount, mapRedoGenList(map));
+		return True;
+	}
+
+	return False;
+}
+
 /* make happy memory leak debugging tool */
 void mapFreeAll(Map map)
 {
@@ -802,7 +942,7 @@ void mapFreeAll(Map map)
 	Chunk   chunk;
 	int     i;
 
-	for (chunk = map->chunks, i = map->mapArea * map->mapArea; i > 0; chunkFree(chunk), chunk ++, i --);
+	for (chunk = map->chunks, i = map->mapArea * map->mapArea; i > 0; chunkFree(chunk, False), chunk ++, i --);
 	free(map->chunks);
 	MutexDestroy(map->genLock);
 	SemClose(map->genCount);
